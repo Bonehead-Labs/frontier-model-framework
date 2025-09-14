@@ -44,7 +44,7 @@ Dependencies: M0
   - Acceptance: Type signatures stable and documented.
 - [x] Local connector [impl, S]
   - Acceptance: Glob include/exclude; returns correct metadata; streaming reads.
-- [ ] S3 connector (boto3) [impl, M]
+- [x] S3 connector (boto3) [impl, M]
   - Acceptance: List by prefix/pattern; stream get; SSE/KMS options; pagination.
 - [ ] SharePoint connector [impl, L]
   - Acceptance: List/download from site/drive/path; auth via MSAL/Graph; handles throttling.
