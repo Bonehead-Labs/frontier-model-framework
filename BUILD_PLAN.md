@@ -40,7 +40,7 @@ Dependencies: M0
 
 ## Milestone M2 — Data Connection Layer
 
-- [ ] Define `DataConnector` protocol and common types (`ResourceRef`, `ResourceInfo`) [impl, S]
+- [x] Define `DataConnector` protocol and common types (`ResourceRef`, `ResourceInfo`) [impl, S]
   - Acceptance: Type signatures stable and documented.
 - [ ] Local connector [impl, S]
   - Acceptance: Glob include/exclude; returns correct metadata; streaming reads.
