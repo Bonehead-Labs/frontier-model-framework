@@ -147,11 +147,11 @@ Dependencies: M0–M7
 
 ## Milestone M9 — Deployment Profiles & Ops
 
-- [ ] Profiles in config: `local`, `aws_lambda`, `aws_batch` [impl, S]
-- [ ] Lambda container image build (Dockerfile) and packaging notes [ops, M]
-- [ ] Lambda runtime constraints (use `/tmp`, S3 artefacts, timeouts/retries) [docs, S]
-- [ ] Batch job container with CLI entrypoint and IAM guidance [ops, M]
-- [ ] IAM least-privilege policy samples for S3, DynamoDB, Redshift [docs, S]
+- [x] Profiles in config: `local`, `aws_lambda`, `aws_batch` [impl, S]
+- [x] Lambda container image build (Dockerfile) and packaging notes [ops, M]
+- [x] Lambda runtime constraints (use `/tmp`, S3 artefacts, timeouts/retries) [docs, S]
+- [x] Batch job container with CLI entrypoint and IAM guidance [ops, M]
+- [x] IAM least-privilege policy samples for S3, DynamoDB, Redshift [docs, S]
 
 Dependencies: M1, M7
 

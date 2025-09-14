@@ -80,6 +80,30 @@ def _deep_merge(dst: dict, src: dict) -> dict:
     return dst
 
 
+def _apply_profile(cfg: dict, env: Mapping[str, str]) -> None:
+    """Apply profile overlays if configured.
+
+    Resolution order for active profile:
+    1) cfg["profiles"]["active"] if present
+    2) env["FMF_PROFILE"] if set
+    3) cfg.get("run_profile") as a fallback legacy key
+    If a profile name is found and exists under cfg["profiles"], merge its mapping into cfg.
+    """
+    profiles = cfg.get("profiles")
+    if not isinstance(profiles, dict):
+        return
+    active = profiles.get("active")
+    if not active:
+        active = env.get("FMF_PROFILE")
+    if not active:
+        active = cfg.get("run_profile")
+    if not active:
+        return
+    overlay = profiles.get(active)
+    if isinstance(overlay, dict):
+        _deep_merge(cfg, overlay)
+
+
 def load_config(
     path: str,
     *,
@@ -104,6 +128,9 @@ def load_config(
     # Highest precedence: explicit --set overrides
     if set_overrides:
         _deep_merge(data, parse_set_overrides(set_overrides))
+
+    # Apply profile overlays (after env and overrides, and aware of --set profiles.active)
+    _apply_profile(data, env)
 
     # Attempt to validate with Pydantic if available
     try:

@@ -1,0 +1,17 @@
+# Minimal AWS Lambda container image for FMF (Python 3.12)
+FROM public.ecr.aws/lambda/python:3.12
+
+# Copy project
+WORKDIR /var/task
+COPY . /var/task
+
+# Install FMF with AWS extras in the Lambda image layer
+RUN python -m pip install --upgrade pip \
+ && pip install .[aws]
+
+# Lambda uses /tmp for writable filesystem; FMF should persist artefacts to S3 when running in Lambda.
+# The handler can invoke the FMF CLI via "fmf" entrypoint or python -m fmf.
+
+# Default command (override Handler when deploying)
+CMD ["main.handler"]
+
