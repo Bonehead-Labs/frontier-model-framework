@@ -102,11 +102,11 @@ Dependencies: M3, M4, M7 (for export integration in outputs)
 
 ## Milestone M6 — Prompt Versioning
 
-- [ ] YAML prompt registry with index and versions [impl, M]
-- [ ] Content hashing and reference by `id#version` [impl, S]
-- [ ] Validation + optional prompt tests [impl, S]
-- [ ] Link used prompt versions into `run.yaml` [impl, S]
-- [ ] CLI: `fmf prompt register <file>#<version>` [impl, S]
+- [x] YAML prompt registry with index and versions [impl, M]
+- [x] Content hashing and reference by `id#version` [impl, S]
+- [x] Validation + optional prompt tests [impl, S]
+- [x] Link used prompt versions into `run.yaml` [impl, S]
+- [x] CLI: `fmf prompt register <file>#<version>` [impl, S]
 
 Dependencies: M0
 

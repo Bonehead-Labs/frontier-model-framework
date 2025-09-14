@@ -14,6 +14,7 @@ from ..processing.persist import persist_artefacts, ensure_dir
 from ..inference.unified import build_llm_client
 from ..inference.base_client import Message, Completion
 from ..config.loader import load_config
+from ..prompts.registry import build_prompt_registry
 from .loader import ChainConfig, ChainStep, load_chain
 
 
@@ -47,26 +48,20 @@ def _interp(value: Any, context: Dict[str, Any]) -> Any:
     return value
 
 
-def _load_prompt_text(ref: str) -> Tuple[str, Dict[str, str]]:
+def _load_prompt_text(ref: str, *, registry) -> Tuple[str, Dict[str, str]]:
     # ref can be 'inline: ...' or 'path#version'
     if ref.startswith("inline:"):
-        return ref[len("inline:") :].lstrip(), {"id": "inline", "version": "v0"}
-    path = ref
-    version = None
-    if "#" in ref:
-        path, version = ref.split("#", 1)
-    with open(path, "r", encoding="utf-8") as f:
-        import yaml
-
-        data = yaml.safe_load(f)
-    if version:
-        # expect versions list
-        for ver in data.get("versions", []):
-            if ver.get("version") == version:
-                return ver.get("template"), {"id": data.get("id", os.path.basename(path)), "version": version}
-        raise FileNotFoundError(f"version {version!r} not found in {path}")
-    # else top-level template
-    return data.get("template"), {"id": data.get("id", os.path.basename(path)), "version": data.get("version", "v0")}
+        text = ref[len("inline:") :].lstrip()
+        import hashlib as _hash
+        ch = _hash.sha256(text.encode("utf-8")).hexdigest()
+        return text, {"id": "inline", "version": "v0", "content_hash": ch}
+    # If not inline, try registry via path#version or id#version
+    if os.path.exists(ref.split("#", 1)[0]):
+        # Register file reference to ensure index awareness
+        pv = registry.register(ref)
+    else:
+        pv = registry.get(ref)
+    return pv.template, {"id": pv.id, "version": pv.version, "content_hash": pv.content_hash}
 
 
 def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str, Any]:
@@ -92,7 +87,9 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
         raise RuntimeError(f"Connector {conn_name!r} not found")
     conn = build_connector(target)
 
-    # Prepare LLM client
+    # Prepare registry and LLM client
+    preg_cfg = getattr(cfg, "prompt_registry", None) if not isinstance(cfg, dict) else cfg.get("prompt_registry")
+    registry = build_prompt_registry(preg_cfg)
     client = build_llm_client(inference_cfg)
 
     # Process inputs to chunks
@@ -117,7 +114,7 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
     metrics = {"tokens_prompt": 0, "tokens_completion": 0}
 
     for step in chain.steps:
-        tmpl, pmeta = _load_prompt_text(step.prompt)
+        tmpl, pmeta = _load_prompt_text(step.prompt, registry=registry)
         prompts_used.append(pmeta)
 
         def run_one(ck):

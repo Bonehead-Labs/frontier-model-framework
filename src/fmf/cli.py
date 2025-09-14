@@ -92,7 +92,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Override config values: key.path=value (repeatable)",
     )
-    subparsers.add_parser("prompt", help="Prompt registry operations")
+    # prompt
+    prompt = subparsers.add_parser("prompt", help="Prompt registry operations")
+    prompt_sub = prompt.add_subparsers(dest="prompt_cmd")
+    prompt_reg = prompt_sub.add_parser("register", help="Register a prompt file#version in the registry")
+    prompt_reg.add_argument("ref", help="Prompt reference: path#version or id#version")
+    prompt_reg.add_argument("-c", "--config", default="fmf.yaml", help="Path to config YAML")
     # infer
     infer = subparsers.add_parser("infer", help="Single-shot inference using a prompt version")
     infer.add_argument("--input", required=True, help="Path to input text file")
@@ -288,6 +293,14 @@ def main(argv: list[str] | None = None) -> int:
         res = run_chain(args.chain, fmf_config_path=args.config)
         print(f"run_id={res['run_id']}")
         print(f"run_dir={res['run_dir']}")
+        return 0
+    if args.command == "prompt" and getattr(args, "prompt_cmd", None) == "register":
+        from .prompts.registry import build_prompt_registry
+        cfg = load_config(args.config)
+        preg_cfg = getattr(cfg, "prompt_registry", None) if not isinstance(cfg, dict) else cfg.get("prompt_registry")
+        reg = build_prompt_registry(preg_cfg)
+        pv = reg.register(args.ref)
+        print(f"registered {pv.id}#{pv.version} hash={pv.content_hash}")
         return 0
 
     # Stub handlers: print a friendly message for unimplemented commands

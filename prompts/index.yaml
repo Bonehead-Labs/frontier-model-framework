@@ -1,0 +1,6 @@
+prompts:
+- id: summarize
+  path: ../../../../../../../../tmp/tmp686uvf5s/sum.yaml
+  versions:
+  - version: v1
+    content_hash: b5ca2a136f3517be171b9ca305ce63cada628dce466ed9e151d38adf8e8d7f98
