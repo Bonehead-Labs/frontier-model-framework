@@ -68,6 +68,17 @@ class TestLoggingSetup(unittest.TestCase):
         data = json.loads(buf.getvalue().strip())
         self.assertEqual(data["level"], "WARNING")
 
+    def test_redaction_of_secret_keys(self):
+        from fmf.observability import setup_logging
+
+        buf = io.StringIO()
+        setup_logging("json", stream=buf)
+        logging.getLogger("redact").warning("msg", extra={"api_key": "supersecret", "token": "abc", "info": "ok"})
+        data = json.loads(buf.getvalue().strip())
+        self.assertEqual(data.get("api_key"), "****")
+        self.assertEqual(data.get("token"), "****")
+        self.assertEqual(data.get("info"), "ok")
+
 
 if __name__ == "__main__":
     unittest.main()

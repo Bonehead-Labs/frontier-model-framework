@@ -136,10 +136,10 @@ Dependencies: M1
 
 ## Milestone M8 — Observability & Artefacts
 
-- [ ] Structured logs; redaction for secrets [impl, S]
-- [ ] Basic metrics: docs, chunks, tokens, retries, cost [impl, S]
-- [ ] Optional OpenTelemetry tracing spans [impl, M]
-- [ ] Artefact index and retention policy config [impl, S]
+- [x] Structured logs; redaction for secrets [impl, S]
+- [x] Basic metrics: docs, chunks, tokens, retries, cost [impl, S]
+- [x] Optional OpenTelemetry tracing spans [impl, M]
+- [x] Artefact index and retention policy config [impl, S]
 
 Dependencies: M0–M7
 

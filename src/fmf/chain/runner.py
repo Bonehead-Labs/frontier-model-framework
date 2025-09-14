@@ -15,6 +15,8 @@ from ..inference.unified import build_llm_client
 from ..inference.base_client import Message, Completion
 from ..config.loader import load_config
 from ..exporters import build_exporter
+from ..observability import metrics as _metrics
+from ..observability.tracing import trace_span
 from ..prompts.registry import build_prompt_registry
 from .loader import ChainConfig, ChainStep, load_chain
 
@@ -96,18 +98,19 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
     # Process inputs to chunks
     documents = []
     chunks = []
-    for ref in conn.list(selector=selector):
-        with conn.open(ref, mode="rb") as f:
-            data = f.read()
-        doc = load_document_from_bytes(source_uri=ref.uri, filename=ref.name, data=data, processing_cfg=processing_cfg)
-        documents.append(doc)
-        if doc.text:
-            text_cfg = getattr(processing_cfg, "text", None) if not isinstance(processing_cfg, dict) else (processing_cfg or {}).get("text")
-            ch_cfg = getattr(text_cfg, "chunking", None) if text_cfg and not isinstance(text_cfg, dict) else (text_cfg or {}).get("chunking") if text_cfg else None
-            max_tokens = getattr(ch_cfg, "max_tokens", 800) if ch_cfg and not isinstance(ch_cfg, dict) else (ch_cfg or {}).get("max_tokens", 800) if ch_cfg else 800
-            overlap = getattr(ch_cfg, "overlap", 150) if ch_cfg and not isinstance(ch_cfg, dict) else (ch_cfg or {}).get("overlap", 150) if ch_cfg else 150
-            splitter = getattr(ch_cfg, "splitter", "by_sentence") if ch_cfg and not isinstance(ch_cfg, dict) else (ch_cfg or {}).get("splitter", "by_sentence") if ch_cfg else "by_sentence"
-            chunks.extend(chunk_text(doc_id=doc.id, text=doc.text, max_tokens=max_tokens, overlap=overlap, splitter=splitter))
+    with trace_span("chain.inputs"):
+        for ref in conn.list(selector=selector):
+            with conn.open(ref, mode="rb") as f:
+                data = f.read()
+            doc = load_document_from_bytes(source_uri=ref.uri, filename=ref.name, data=data, processing_cfg=processing_cfg)
+            documents.append(doc)
+            if doc.text:
+                text_cfg = getattr(processing_cfg, "text", None) if not isinstance(processing_cfg, dict) else (processing_cfg or {}).get("text")
+                ch_cfg = getattr(text_cfg, "chunking", None) if text_cfg and not isinstance(text_cfg, dict) else (text_cfg or {}).get("chunking") if text_cfg else None
+                max_tokens = getattr(ch_cfg, "max_tokens", 800) if ch_cfg and not isinstance(ch_cfg, dict) else (ch_cfg or {}).get("max_tokens", 800) if ch_cfg else 800
+                overlap = getattr(ch_cfg, "overlap", 150) if ch_cfg and not isinstance(ch_cfg, dict) else (ch_cfg or {}).get("overlap", 150) if ch_cfg else 150
+                splitter = getattr(ch_cfg, "splitter", "by_sentence") if ch_cfg and not isinstance(ch_cfg, dict) else (ch_cfg or {}).get("splitter", "by_sentence") if ch_cfg else "by_sentence"
+                chunks.extend(chunk_text(doc_id=doc.id, text=doc.text, max_tokens=max_tokens, overlap=overlap, splitter=splitter))
 
     # Execute steps
     context_all: Dict[str, List[Any]] = {}
@@ -133,11 +136,12 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
                 body = body.replace("${" + k + "}", str(v))
             messages = [Message(role="system", content="You are a helpful assistant."), Message(role="user", content=body)]
             params = step.params or {}
-            comp: Completion = client.complete(
-                messages,
-                temperature=params.get("temperature"),
-                max_tokens=params.get("max_tokens"),
-            )
+            with trace_span(f"step.{step.id}"):
+                comp: Completion = client.complete(
+                    messages,
+                    temperature=params.get("temperature"),
+                    max_tokens=params.get("max_tokens"),
+                )
             return comp
 
         results: List[str] = []
@@ -174,6 +178,19 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
                 }
                 f.write(json.dumps(rec) + "\n")
 
+    # metrics
+    _metrics.set_value("docs", len(documents))
+    _metrics.set_value("chunks", len(chunks))
+    cost = None
+    try:
+        import os as _os
+
+        c_in = float(_os.getenv("FMF_COST_PROMPT_PER_1K", "0") or 0)
+        c_out = float(_os.getenv("FMF_COST_COMPLETION_PER_1K", "0") or 0)
+        cost = (metrics["tokens_prompt"] / 1000.0) * c_in + (metrics["tokens_completion"] / 1000.0) * c_out
+    except Exception:
+        cost = None
+
     run_yaml = {
         "run_id": run_id,
         "profile": getattr(cfg, "run_profile", None) if not isinstance(cfg, dict) else cfg.get("run_profile"),
@@ -182,7 +199,7 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
         "provider": {
             "name": getattr(inference_cfg, "provider", None) if not isinstance(inference_cfg, dict) else inference_cfg.get("provider"),
         },
-        "metrics": metrics,
+        "metrics": {**metrics, **_metrics.get_all(), "cost_estimate_usd": cost},
         "artefacts": [paths["docs"], paths["chunks"], outputs_file],
     }
     run_yaml_path = os.path.join(run_dir, "run.yaml")
@@ -213,7 +230,30 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
                 if not chain.continue_on_error:
                     raise
     
-    return {"run_id": run_id, "artefacts": paths, "run_dir": run_dir, "metrics": metrics}
+    # Update artefact index and apply retention
+    try:
+        from ..processing.persist import update_index, apply_retention
+
+        update_index(artefacts_dir or "artefacts", {
+            "run_id": run_id,
+            "run_dir": run_dir,
+            "run_yaml": run_yaml_path,
+        })
+        # retention config (env var or cfg field)
+        retain = None
+        if isinstance(cfg, dict):
+            retain = cfg.get("artefacts_retain_last")
+        else:
+            retain = getattr(cfg, "artefacts_retain_last", None)
+        import os as _os
+
+        retain = int(_os.getenv("FMF_ARTEFACTS__RETAIN_LAST", retain or 0) or 0)
+        if retain and retain > 0:
+            apply_retention(artefacts_dir or "artefacts", retain)
+    except Exception:
+        pass
+
+    return {"run_id": run_id, "artefacts": paths, "run_dir": run_dir, "metrics": {**metrics, **_metrics.get_all()}}
 
 
 __all__ = ["run_chain", "load_chain"]

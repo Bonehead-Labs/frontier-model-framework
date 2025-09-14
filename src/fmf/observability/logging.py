@@ -60,7 +60,12 @@ class JsonFormatter(logging.Formatter):
             if key not in _RESERVED and not key.startswith("_"):
                 try:
                     json.dumps(value)
-                    payload[key] = value
+                    # redact secrets by key name
+                    lowered = key.lower()
+                    if any(s in lowered for s in ("secret", "token", "api_key", "apikey", "password", "authorization", "auth")):
+                        payload[key] = "****"
+                    else:
+                        payload[key] = value
                 except (TypeError, ValueError):
                     payload[key] = repr(value)
 
@@ -103,4 +108,3 @@ def setup_logging(
 
 
 __all__ = ["setup_logging", "JsonFormatter", "HumanFormatter"]
-

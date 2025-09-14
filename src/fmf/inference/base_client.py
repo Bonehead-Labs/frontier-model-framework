@@ -66,6 +66,13 @@ def with_retries(func: Callable[[], Completion], *, retries: int = 3, base_delay
                 if isinstance(e, InferenceError):
                     raise
                 raise InferenceError(str(e), status_code=getattr(e, "status_code", None))
+            try:
+                # best-effort increment of retry metric
+                from ..observability import metrics  # type: ignore
+
+                metrics.inc("retries", 1)
+            except Exception:
+                pass
             time.sleep(delay)
             delay = min(delay * 2, 2.0)
     assert last_exc is not None
