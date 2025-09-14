@@ -63,7 +63,7 @@ Dependencies: M1
 - [x] Table parsing (CSV/XLSX, optional parquet to markdown) [impl, M]
 - [x] OCR integration (tesseract or pluggable) [impl, M]
 - [x] Chunking strategies with overlap and token estimates [impl, M]
-- [ ] Persist normalized docs/chunks under `artefacts/<run_id>/` [impl, S]
+- [x] Persist normalized docs/chunks under `artefacts/<run_id>/` [impl, S]
 - [ ] CLI: `fmf process --connector <name> --select "**/*.md"` [impl, S]
 - [ ] Unit tests for chunking, parsing, loaders [tests, M]
 
