@@ -45,13 +45,13 @@ class TestScaffold(unittest.TestCase):
         self.assertTrue(hasattr(fmf, "__all__"))
         self.assertTrue(expected.issubset(set(getattr(fmf, "__all__"))))
 
-    def test_python_m_fmf_runs(self):
-        # Ensure `python -m fmf` executes and prints scaffold message
+    def test_python_m_fmf_help(self):
+        # Ensure `python -m fmf --help` executes and prints usage
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         env = os.environ.copy()
         env["PYTHONPATH"] = os.path.join(repo_root, "src") + os.pathsep + env.get("PYTHONPATH", "")
         result = subprocess.run(
-            [sys.executable, "-m", "fmf"],
+            [sys.executable, "-m", "fmf", "--help"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=env,
@@ -60,9 +60,9 @@ class TestScaffold(unittest.TestCase):
             check=False,
         )
         self.assertEqual(result.returncode, 0)
-        self.assertIn("FMF package scaffolding is in place.", result.stdout)
+        self.assertIn("Frontier Model Framework CLI", result.stdout)
+        self.assertIn("usage: fmf", result.stdout)
 
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -1,8 +1,10 @@
+from .cli import main as _cli_main
+
+
 def main() -> None:
-    # Minimal entry to verify module execution during scaffolding
-    print("FMF package scaffolding is in place.")
+    # Delegate to CLI main; this lets `python -m fmf` behave like `fmf`.
+    _cli_main()
 
 
 if __name__ == "__main__":
     main()
-
