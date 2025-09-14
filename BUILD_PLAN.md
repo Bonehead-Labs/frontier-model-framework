@@ -159,9 +159,9 @@ Dependencies: M1, M7
 
 ## Milestone M10 — Docs & Examples
 
-- [ ] Example `fmf.yaml` with connectors, processing, inference, export [docs, S]
-- [ ] Example `prompts/` and `chains/` including export outputs [docs, S]
-- [ ] README update linking AGENTS.md and BUILD_PLAN.md [docs, XS]
+- [x] Example `fmf.yaml` with connectors, processing, inference, export [docs, S]
+- [x] Example `prompts/` and `chains/` including export outputs [docs, S]
+- [x] README update linking AGENTS.md and BUILD_PLAN.md [docs, XS]
 
 Dependencies: M1–M7
 

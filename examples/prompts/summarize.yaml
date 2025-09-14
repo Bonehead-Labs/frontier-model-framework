@@ -1,0 +1,11 @@
+id: summarize
+versions:
+  - version: v1
+    template: |
+      Summarize in 3-5 bullets:
+      {{ text }}
+    tests:
+      - name: contains-text
+        inputs: { text: "Hello world" }
+        assertions: { contains: ["Hello"] }
+

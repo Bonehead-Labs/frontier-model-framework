@@ -1,0 +1,22 @@
+name: summarize-markdown
+inputs:
+  connector: local_docs
+  select: ["**/*.md"]
+steps:
+  - id: summarize_chunk
+    prompt: ./examples/prompts/summarize.yaml#v1
+    inputs:
+      text: "${chunk.text}"
+    output: chunk_summary
+  - id: aggregate
+    prompt: "inline: Aggregate summaries:\n{{ summaries }}"
+    inputs:
+      summaries: "${all.chunk_summary}"
+    output: report
+outputs:
+  - save: artefacts/${run_id}/report.md
+    from: report
+  - export: s3_results
+    from: report
+    as: jsonl
+
