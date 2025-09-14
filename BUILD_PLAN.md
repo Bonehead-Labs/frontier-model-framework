@@ -42,7 +42,7 @@ Dependencies: M0
 
 - [x] Define `DataConnector` protocol and common types (`ResourceRef`, `ResourceInfo`) [impl, S]
   - Acceptance: Type signatures stable and documented.
-- [ ] Local connector [impl, S]
+- [x] Local connector [impl, S]
   - Acceptance: Glob include/exclude; returns correct metadata; streaming reads.
 - [ ] S3 connector (boto3) [impl, M]
   - Acceptance: List by prefix/pattern; stream get; SSE/KMS options; pagination.
