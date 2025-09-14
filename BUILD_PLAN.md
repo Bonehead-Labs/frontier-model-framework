@@ -61,7 +61,7 @@ Dependencies: M1
 - [x] File type detection and loaders: text/markdown/html/csv/xlsx/parquet/png/jpg [impl, L]
 - [x] Text normalization + markdown preservation [impl, S]
 - [x] Table parsing (CSV/XLSX, optional parquet to markdown) [impl, M]
-- [ ] OCR integration (tesseract or pluggable) [impl, M]
+- [x] OCR integration (tesseract or pluggable) [impl, M]
 - [ ] Chunking strategies with overlap and token estimates [impl, M]
 - [ ] Persist normalized docs/chunks under `artefacts/<run_id>/` [impl, S]
 - [ ] CLI: `fmf process --connector <name> --select "**/*.md"` [impl, S]

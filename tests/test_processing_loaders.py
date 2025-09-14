@@ -90,6 +90,48 @@ class TestProcessingLoaders(unittest.TestCase):
         self.assertIsNotNone(d.blobs)
         self.assertEqual(d.blobs[0].media_type, "image/png")
 
+    def test_image_with_ocr_mock(self):
+        from fmf.processing.loaders import load_document_from_bytes
+        import sys as _sys
+        import types as _types
+
+        saved = dict(_sys.modules)
+        try:
+            # Mock PIL.Image.open
+            PIL = _types.ModuleType("PIL")
+            Image = _types.ModuleType("PIL.Image")
+
+            class _DummyImg:
+                pass
+
+            def open(_fp):
+                return _DummyImg()
+
+            Image.open = open
+            _sys.modules["PIL"] = PIL
+            _sys.modules["PIL.Image"] = Image
+
+            # Mock pytesseract.image_to_string
+            pytesseract = _types.ModuleType("pytesseract")
+
+            def image_to_string(img, lang=None):
+                return " OCR  TEXT  "
+
+            pytesseract.image_to_string = image_to_string
+            _sys.modules["pytesseract"] = pytesseract
+
+            fake_jpg = b"\xff\xd8\xff\xe0" + b"0" * 10
+            d = load_document_from_bytes(
+                source_uri="file:///j.jpg",
+                filename="j.jpg",
+                data=fake_jpg,
+                processing_cfg={"images": {"ocr": {"enabled": True, "lang": "en"}}},
+            )
+            self.assertEqual(d.text, "OCR TEXT")
+        finally:
+            _sys.modules.clear()
+            _sys.modules.update(saved)
+
 
 if __name__ == "__main__":
     unittest.main()
