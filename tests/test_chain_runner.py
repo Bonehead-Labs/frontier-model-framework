@@ -9,6 +9,7 @@ import unittest
 class DummyClient:
     def __init__(self, behavior=None):
         self.behavior = behavior or {}
+        self.last_kwargs = None
 
     def complete(self, messages, **kwargs):
         user = [m for m in messages if m.role == "user"][0]
@@ -16,6 +17,7 @@ class DummyClient:
         if "RAISE" in text:
             raise RuntimeError("fail")
         # tag output for identification
+        self.last_kwargs = kwargs
         return type("C", (), {"text": f"OUT:{text}", "prompt_tokens": 1, "completion_tokens": 1})()
 
 
@@ -164,6 +166,44 @@ class TestChainRunner(unittest.TestCase):
         res = run_chain(chain_path, fmf_config_path=cfg_path)
         # Should finish even though one chunk failed
         self.assertIn("run_dir", res)
+
+    def test_step_params_passed(self):
+        from fmf.chain.runner import run_chain
+        import fmf.chain.runner as runner_mod
+
+        dtemp = tempfile.TemporaryDirectory()
+        root = dtemp.name
+        with open(os.path.join(root, "a.md"), "w", encoding="utf-8") as f:
+            f.write("Doc.")
+
+        cfg_path = self._write_yaml(
+            f"""
+            project: fmf
+            artefacts_dir: {root}
+            connectors: [{{ name: local_docs, type: local, root: {root}, include: ["**/*.md"] }}]
+            processing: {{ text: {{ chunking: {{ max_tokens: 50, overlap: 0, splitter: by_sentence }} }} }}
+            inference: {{ provider: azure_openai, azure_openai: {{ endpoint: https://x, api_version: v, deployment: d }} }}
+            """
+        )
+        chain_path = self._write_yaml(
+            """
+            name: t
+            inputs: { connector: local_docs, select: ["**/*.md"] }
+            steps:
+              - id: s
+                prompt: "inline: {{ text }}"
+                inputs: { text: "${chunk.text}" }
+                output: o
+                params: { temperature: 0.3, max_tokens: 10 }
+            """
+        )
+
+        dummy = DummyClient()
+        runner_mod.build_llm_client = lambda cfg: dummy  # type: ignore
+        run_chain(chain_path, fmf_config_path=cfg_path)
+        self.assertIsNotNone(dummy.last_kwargs)
+        self.assertEqual(dummy.last_kwargs.get("temperature"), 0.3)
+        self.assertEqual(dummy.last_kwargs.get("max_tokens"), 10)
 
 
 if __name__ == "__main__":

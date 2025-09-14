@@ -91,7 +91,7 @@ Dependencies: M1
 
 - [x] Chain YAML schema and loader (`chains/*.yaml`) [impl, S]
 - [x] Step executor with variable interpolation (`${chunk.text}`, `${all.*}`) [impl, M]
-- [ ] Concurrency controls; per-step params; error handling strategy [impl, M]
+- [x] Concurrency controls; per-step params; error handling strategy [impl, M]
 - [ ] Write `run.yaml` with metrics and prompt lineage [impl, S]
 - [ ] CLI: `fmf run --chain chains/sample.yaml` [impl, S]
 - [ ] E2E sample chain on local data (no network) [tests, S]

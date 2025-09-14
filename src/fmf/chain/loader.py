@@ -12,6 +12,7 @@ class ChainStep:
     prompt: str  # path#version or inline text when startswith 'inline:'
     inputs: Dict[str, Any]
     output: str
+    params: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -38,6 +39,7 @@ def load_chain(path: str) -> ChainConfig:
                 prompt=s.get("prompt") or s.get("prompt_text", ""),
                 inputs=s.get("inputs", {}),
                 output=s.get("output", s["id"]),
+                params=s.get("params"),
             )
         )
     outputs = data.get("outputs")
@@ -54,4 +56,3 @@ def load_chain(path: str) -> ChainConfig:
 
 
 __all__ = ["ChainConfig", "ChainStep", "load_chain"]
-

@@ -134,7 +134,12 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
                 body = body.replace("{{ " + k + " }}", str(v))
                 body = body.replace("${" + k + "}", str(v))
             messages = [Message(role="system", content="You are a helpful assistant."), Message(role="user", content=body)]
-            comp: Completion = client.complete(messages)
+            params = step.params or {}
+            comp: Completion = client.complete(
+                messages,
+                temperature=params.get("temperature"),
+                max_tokens=params.get("max_tokens"),
+            )
             return comp
 
         results: List[str] = []
@@ -191,4 +196,3 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
 
 
 __all__ = ["run_chain", "load_chain"]
-
