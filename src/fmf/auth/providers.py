@@ -225,18 +225,25 @@ class AwsSecretsProvider:
         return out
 
 
-def build_provider(auth: AuthConfig, *, env: Mapping[str, str] | None = None) -> SecretProvider:
-    if auth.provider == "env":
-        return EnvSecretProvider(getattr(auth, "env", None), env)
-    if auth.provider == "azure_key_vault":
-        if not getattr(auth, "azure_key_vault", None):
+def build_provider(auth: AuthConfig | dict, *, env: Mapping[str, str] | None = None) -> SecretProvider:
+    prov = getattr(auth, "provider", None)
+    if prov is None and isinstance(auth, dict):
+        prov = auth.get("provider")
+
+    if prov == "env":
+        env_cfg = getattr(auth, "env", None) if not isinstance(auth, dict) else auth.get("env")
+        return EnvSecretProvider(env_cfg, env)
+    if prov == "azure_key_vault":
+        akv_cfg = getattr(auth, "azure_key_vault", None) if not isinstance(auth, dict) else auth.get("azure_key_vault")
+        if not akv_cfg:
             raise AuthError("azure_key_vault provider requires azure_key_vault config block")
-        return AzureKeyVaultProvider(getattr(auth, "azure_key_vault"))
-    if auth.provider == "aws_secrets":
-        if not getattr(auth, "aws_secrets", None):
+        return AzureKeyVaultProvider(akv_cfg)
+    if prov == "aws_secrets":
+        aws_cfg = getattr(auth, "aws_secrets", None) if not isinstance(auth, dict) else auth.get("aws_secrets")
+        if not aws_cfg:
             raise AuthError("aws_secrets provider requires aws_secrets config block")
-        return AwsSecretsProvider(getattr(auth, "aws_secrets"))
-    raise AuthError(f"Unsupported auth provider: {auth.provider}")
+        return AwsSecretsProvider(aws_cfg)
+    raise AuthError(f"Unsupported auth provider: {prov}")
 
 
 __all__ = [

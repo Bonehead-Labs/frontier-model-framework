@@ -32,7 +32,7 @@ Dependencies: none
   - [x] Azure Key Vault provider [impl, M]
   - [x] AWS Secrets Manager/SSM provider [impl, M]
   - Acceptance: `fmf keys test` resolves logical names; secrets never logged in clear.
-- [ ] CLI: `fmf keys test` command [impl, S]
+- [x] CLI: `fmf keys test` command [impl, S]
 
 Dependencies: M0
 
