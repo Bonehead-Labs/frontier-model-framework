@@ -73,7 +73,7 @@ Dependencies: M2
 
 ## Milestone M4 — Inference Layer
 
-- [ ] Unified message/types and `LLMClient` protocol [impl, S]
+- [x] Unified message/types and `LLMClient` protocol [impl, S]
 - [ ] Azure OpenAI adapter [impl, M]
   - Acceptance: `complete()` works with system/user/assistant messages; supports temperature/max_tokens.
 - [ ] AWS Bedrock adapter [impl, M]
