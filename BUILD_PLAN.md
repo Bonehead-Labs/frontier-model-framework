@@ -48,8 +48,8 @@ Dependencies: M0
   - Acceptance: List by prefix/pattern; stream get; SSE/KMS options; pagination.
 - [x] SharePoint connector [impl, L]
   - Acceptance: List/download from site/drive/path; auth via MSAL/Graph; handles throttling.
-- [ ] CLI: `fmf connect ls <name> --select "glob"` [impl, S]
-- [ ] Contract tests with temp dirs and moto/localstack for S3 [tests, M]
+- [x] CLI: `fmf connect ls <name> --select "glob"` [impl, S]
+- [x] Contract tests with temp dirs and moto/localstack for S3 [tests, M]
 
 Dependencies: M1
 

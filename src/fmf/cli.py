@@ -7,6 +7,7 @@ from typing import List
 from .config.loader import load_config
 from .auth import build_provider, AuthError
 from .observability.logging import setup_logging
+from .connectors import build_connector
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,7 +39,26 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Override config values: key.path=value (repeatable)",
     )
-    subparsers.add_parser("connect", help="List and interact with data connectors")
+    # connect subcommands
+    connect = subparsers.add_parser("connect", help="List and interact with data connectors")
+    connect_sub = connect.add_subparsers(dest="connect_cmd")
+    connect_ls = connect_sub.add_parser("ls", help="List resources for a configured connector")
+    connect_ls.add_argument("name", help="Connector name from config")
+    connect_ls.add_argument(
+        "--select",
+        dest="selector",
+        action="append",
+        default=[],
+        help="Glob selector(s) relative to connector root (repeatable)",
+    )
+    connect_ls.add_argument("-c", "--config", default="fmf.yaml", help="Path to config YAML")
+    connect_ls.add_argument(
+        "--set",
+        dest="set_overrides",
+        action="append",
+        default=[],
+        help="Override config values: key.path=value (repeatable)",
+    )
     subparsers.add_parser("process", help="Process and chunk input data to artefacts")
     subparsers.add_parser("prompt", help="Prompt registry operations")
     subparsers.add_parser("run", help="Execute a chain from YAML")
@@ -89,6 +109,33 @@ def _cmd_keys_test(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_connect_ls(args: argparse.Namespace) -> int:
+    setup_logging()
+    cfg = load_config(args.config, set_overrides=args.set_overrides)
+    connectors = getattr(cfg, "connectors", None)
+    if connectors is None and isinstance(cfg, dict):
+        connectors = cfg.get("connectors")
+    if not connectors:
+        print("No connectors configured.")
+        return 2
+
+    target = None
+    for c in connectors:
+        name = getattr(c, "name", None) if not isinstance(c, dict) else c.get("name")
+        if name == args.name:
+            target = c
+            break
+    if target is None:
+        print(f"Connector '{args.name}' not found in config.")
+        return 2
+
+    conn = build_connector(target)
+    selector = args.selector or None
+    for ref in conn.list(selector=selector):
+        print(f"{ref.id}\t{ref.uri}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -114,6 +161,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "keys" and getattr(args, "keys_cmd", None) == "test":
         return _cmd_keys_test(args)
+    if args.command == "connect" and getattr(args, "connect_cmd", None) == "ls":
+        return _cmd_connect_ls(args)
 
     # Stub handlers: print a friendly message for unimplemented commands
     print(f"Command '{args.command}' is not implemented yet.")
