@@ -27,10 +27,10 @@ Dependencies: none
   - Acceptance: Loads `fmf.yaml`; env/CLI overrides; schema validation errors are actionable.
 - [x] Config loader with merge + precedence and `--set key.path=value` overrides [impl, M]
   - Acceptance: Values override per spec; supports double underscore env paths.
-- [ ] Secret providers [impl, M]
-  - [ ] `.env`/environment provider [impl, S]
-  - [ ] Azure Key Vault provider [impl, M]
-  - [ ] AWS Secrets Manager/SSM provider [impl, M]
+- [x] Secret providers [impl, M]
+  - [x] `.env`/environment provider [impl, S]
+  - [x] Azure Key Vault provider [impl, M]
+  - [x] AWS Secrets Manager/SSM provider [impl, M]
   - Acceptance: `fmf keys test` resolves logical names; secrets never logged in clear.
 - [ ] CLI: `fmf keys test` command [impl, S]
 
