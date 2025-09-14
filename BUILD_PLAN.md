@@ -90,7 +90,7 @@ Dependencies: M1
 ## Milestone M5 — Chain Runner
 
 - [x] Chain YAML schema and loader (`chains/*.yaml`) [impl, S]
-- [ ] Step executor with variable interpolation (`${chunk.text}`, `${all.*}`) [impl, M]
+- [x] Step executor with variable interpolation (`${chunk.text}`, `${all.*}`) [impl, M]
 - [ ] Concurrency controls; per-step params; error handling strategy [impl, M]
 - [ ] Write `run.yaml` with metrics and prompt lineage [impl, S]
 - [ ] CLI: `fmf run --chain chains/sample.yaml` [impl, S]
