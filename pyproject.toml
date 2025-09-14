@@ -21,7 +21,7 @@ azure = [
   "azure-keyvault-secrets>=4.8,<5",
 ]
 sharepoint = [
-  "Office365-REST-Python-Client>=2.5.18,<3",
+  "msgraph-sdk>=1.0.0,<2",
 ]
 ocr = [
   "pytesseract>=0.3.10,<1",

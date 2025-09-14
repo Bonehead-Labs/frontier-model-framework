@@ -30,7 +30,8 @@ class TestDependenciesSpec(unittest.TestCase):
         self.assertTrue(has_pins(optionals["aws"], "boto3"))
         self.assertTrue(has_pins(optionals["azure"], "azure-identity"))
         self.assertTrue(has_pins(optionals["azure"], "azure-keyvault-secrets"))
-        self.assertTrue(has_pins(optionals["sharepoint"], "Office365-REST-Python-Client"))
+        # SharePoint via Microsoft Graph SDK
+        self.assertTrue(has_pins(optionals["sharepoint"], "msgraph-sdk"))
         self.assertTrue(has_pins(optionals["ocr"], "pytesseract"))
         self.assertTrue(has_pins(optionals["delta"], "deltalake"))
         self.assertTrue(has_pins(optionals["redshift"], "redshift-connector"))
