@@ -8,11 +8,11 @@ Status labels: [spec], [impl], [tests], [docs], [ops]
 
 ## Milestone M0 — Scaffolding & Foundations
 
-- [ ] Create package skeleton `src/fmf/` with subpackages: `config/`, `auth/`, `connectors/`, `processing/`, `inference/`, `prompts/`, `observability/`, `exporters/` [impl, S]
+- [x] Create package skeleton `src/fmf/` with subpackages: `config/`, `auth/`, `connectors/`, `processing/`, `inference/`, `prompts/`, `observability/`, `exporters/` [impl, S]
   - Acceptance: `python -m fmf` imports; basic `__init__.py` in each subpackage.
-- [ ] Add `fmf` CLI entrypoint via `pyproject.toml` (`[project.scripts]`) [impl, S]
+- [x] Add `fmf` CLI entrypoint via `pyproject.toml` (`[project.scripts]`) [impl, S]
   - Acceptance: `fmf --help` prints usage.
-- [ ] Initialize logging formatters (JSON + human) in `observability/logging.py` [impl, S]
+- [x] Initialize logging formatters (JSON + human) in `observability/logging.py` [impl, S]
   - Acceptance: Logs respect `FMF_LOG_FORMAT=json|human`.
 - [ ] Decide core third-party libs and pin minimal versions [spec, S]
   - Pydantic v2, boto3, azure-identity, azure-keyvault-secrets, msgraph/SharePoint client, tesseract optional, deltalake optional.
@@ -248,4 +248,3 @@ Dependencies: all prior
 - Lambda packaging for OCR/Delta — Prefer S3 exports first; make OCR and Delta optional; provide container images.
 - Redshift MERGE permissions and locking — Use staging tables and small transactional batches; document IAM and WLM settings.
 - Cost variability (LLM tokens) — Add cost tracking and rate limiting; dry-run mode for chains.
-
