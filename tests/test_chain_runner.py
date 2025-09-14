@@ -111,6 +111,11 @@ class TestChainRunner(unittest.TestCase):
         # run.yaml exists
         run_yaml = os.path.join(res["run_dir"], "run.yaml")
         self.assertTrue(os.path.exists(run_yaml))
+        import yaml as _yaml
+        with open(run_yaml, "r", encoding="utf-8") as f:
+            runrec = _yaml.safe_load(f)
+        self.assertIn("prompts_used", runrec)
+        self.assertIn("metrics", runrec)
 
         # outputs.jsonl exists with OUT: prefix (from DummyClient)
         outputs = os.path.join(res["run_dir"], "outputs.jsonl")
