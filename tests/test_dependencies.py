@@ -14,24 +14,28 @@ class TestDependenciesSpec(unittest.TestCase):
         project = data.get("project", {})
         self.assertIn("dependencies", project)
         deps = project["dependencies"]
-        # Core dependency: Pydantic v2
-        self.assertTrue(any(d.startswith("pydantic") and ">=2" in d for d in deps))
+        # Core dependency: Pydantic v2 pinned to <3
+        self.assertTrue(any(d.startswith("pydantic") and ">=2" in d and "<3" in d for d in deps))
+        # Core dependency: PyYAML pinned to <7
+        self.assertTrue(any(d.lower().startswith("pyyaml") and ">=6" in d and "<7" in d for d in deps))
 
         optionals = project.get("optional-dependencies", {})
         for group in ("aws", "azure", "sharepoint", "ocr", "delta", "redshift", "excel"):
             self.assertIn(group, optionals)
 
-        # Spot-check package names inside extras
-        self.assertTrue(any(s.startswith("boto3") for s in optionals["aws"]))
-        self.assertTrue(any(s.startswith("azure-identity") for s in optionals["azure"]))
-        self.assertTrue(any(s.startswith("azure-keyvault-secrets") for s in optionals["azure"]))
-        self.assertTrue(any("Office365-REST-Python-Client" in s for s in optionals["sharepoint"]))
-        self.assertTrue(any(s.startswith("pytesseract") for s in optionals["ocr"]))
-        self.assertTrue(any(s.startswith("deltalake") for s in optionals["delta"]))
-        self.assertTrue(any(s.startswith("redshift-connector") for s in optionals["redshift"]))
-        self.assertTrue(any(s.startswith("openpyxl") for s in optionals["excel"]))
+        # Spot-check package names inside extras and that they are pinned with >= and <
+        def has_pins(pkgs, name_substr):
+            return any((name_substr in s) and (">=" in s) and ("<" in s) for s in pkgs)
+
+        self.assertTrue(has_pins(optionals["aws"], "boto3"))
+        self.assertTrue(has_pins(optionals["azure"], "azure-identity"))
+        self.assertTrue(has_pins(optionals["azure"], "azure-keyvault-secrets"))
+        self.assertTrue(has_pins(optionals["sharepoint"], "Office365-REST-Python-Client"))
+        self.assertTrue(has_pins(optionals["ocr"], "pytesseract"))
+        self.assertTrue(has_pins(optionals["delta"], "deltalake"))
+        self.assertTrue(has_pins(optionals["redshift"], "redshift-connector"))
+        self.assertTrue(has_pins(optionals["excel"], "openpyxl"))
 
 
 if __name__ == "__main__":
     unittest.main()
-

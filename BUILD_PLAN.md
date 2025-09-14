@@ -14,7 +14,7 @@ Status labels: [spec], [impl], [tests], [docs], [ops]
   - Acceptance: `fmf --help` prints usage.
 - [x] Initialize logging formatters (JSON + human) in `observability/logging.py` [impl, S]
   - Acceptance: Logs respect `FMF_LOG_FORMAT=json|human`.
-- [ ] Decide core third-party libs and pin minimal versions [spec, S]
+- [x] Decide core third-party libs and pin minimal versions [spec, S]
   - Pydantic v2, boto3, azure-identity, azure-keyvault-secrets, msgraph/SharePoint client, tesseract optional, deltalake optional.
 
 Dependencies: none
