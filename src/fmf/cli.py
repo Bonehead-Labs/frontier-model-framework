@@ -8,6 +8,12 @@ from .config.loader import load_config
 from .auth import build_provider, AuthError
 from .observability.logging import setup_logging
 from .connectors import build_connector
+from .processing.loaders import load_document_from_bytes
+from .processing.chunking import chunk_text
+from .processing.persist import persist_artefacts
+import datetime as _dt
+import os as _os
+import uuid as _uuid
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -59,7 +65,25 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Override config values: key.path=value (repeatable)",
     )
-    subparsers.add_parser("process", help="Process and chunk input data to artefacts")
+
+    # process subcommand
+    process = subparsers.add_parser("process", help="Process and chunk input data to artefacts")
+    process.add_argument("--connector", required=True, help="Connector name to read inputs from")
+    process.add_argument(
+        "--select",
+        dest="selector",
+        action="append",
+        default=[],
+        help="Glob selector(s) for inputs (repeatable)",
+    )
+    process.add_argument("-c", "--config", default="fmf.yaml", help="Path to config YAML")
+    process.add_argument(
+        "--set",
+        dest="set_overrides",
+        action="append",
+        default=[],
+        help="Override config values: key.path=value (repeatable)",
+    )
     subparsers.add_parser("prompt", help="Prompt registry operations")
     subparsers.add_parser("run", help="Execute a chain from YAML")
     subparsers.add_parser("infer", help="Single-shot inference using a prompt version")
@@ -136,6 +160,62 @@ def _cmd_connect_ls(args: argparse.Namespace) -> int:
     return 0
 
 
+def _gen_run_id() -> str:
+    ts = _dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    rand = _uuid.uuid4().hex[:6]
+    return f"{ts}-{rand}"
+
+
+def _cmd_process(args: argparse.Namespace) -> int:
+    setup_logging()
+    cfg = load_config(args.config, set_overrides=args.set_overrides)
+    connectors = getattr(cfg, "connectors", None)
+    processing_cfg = getattr(cfg, "processing", None)
+    artefacts_dir = getattr(cfg, "artefacts_dir", None)
+    if isinstance(cfg, dict):
+        connectors = connectors or cfg.get("connectors")
+        processing_cfg = processing_cfg or cfg.get("processing")
+        artefacts_dir = artefacts_dir or cfg.get("artefacts_dir")
+    if not connectors:
+        print("No connectors configured.")
+        return 2
+
+    target = None
+    for c in connectors:
+        name = getattr(c, "name", None) if not isinstance(c, dict) else c.get("name")
+        if name == args.connector:
+            target = c
+            break
+    if target is None:
+        print(f"Connector '{args.connector}' not found in config.")
+        return 2
+
+    conn = build_connector(target)
+    selector = args.selector or None
+    documents = []
+    chunks = []
+    for ref in conn.list(selector=selector):
+        with conn.open(ref, mode="rb") as f:
+            data = f.read()
+        doc = load_document_from_bytes(source_uri=ref.uri, filename=ref.name, data=data, processing_cfg=processing_cfg)
+        documents.append(doc)
+        # chunking for text content
+        text_cfg = getattr(processing_cfg, "text", None) if not isinstance(processing_cfg, dict) else (processing_cfg or {}).get("text")
+        ch_cfg = getattr(text_cfg, "chunking", None) if text_cfg and not isinstance(text_cfg, dict) else (text_cfg or {}).get("chunking") if text_cfg else None
+        max_tokens = getattr(ch_cfg, "max_tokens", 800) if ch_cfg and not isinstance(ch_cfg, dict) else (ch_cfg or {}).get("max_tokens", 800) if ch_cfg else 800
+        overlap = getattr(ch_cfg, "overlap", 150) if ch_cfg and not isinstance(ch_cfg, dict) else (ch_cfg or {}).get("overlap", 150) if ch_cfg else 150
+        splitter = getattr(ch_cfg, "splitter", "by_sentence") if ch_cfg and not isinstance(ch_cfg, dict) else (ch_cfg or {}).get("splitter", "by_sentence") if ch_cfg else "by_sentence"
+        if doc.text:
+            chunks.extend(chunk_text(doc_id=doc.id, text=doc.text, max_tokens=max_tokens, overlap=overlap, splitter=splitter))
+
+    run_id = _gen_run_id()
+    out = persist_artefacts(artefacts_dir=artefacts_dir or "artefacts", run_id=run_id, documents=documents, chunks=chunks)
+    print(f"run_id={run_id}")
+    print(f"docs={out['docs']}")
+    print(f"chunks={out['chunks']}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -163,6 +243,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_keys_test(args)
     if args.command == "connect" and getattr(args, "connect_cmd", None) == "ls":
         return _cmd_connect_ls(args)
+    if args.command == "process":
+        return _cmd_process(args)
 
     # Stub handlers: print a friendly message for unimplemented commands
     print(f"Command '{args.command}' is not implemented yet.")

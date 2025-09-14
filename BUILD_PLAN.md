@@ -64,7 +64,7 @@ Dependencies: M1
 - [x] OCR integration (tesseract or pluggable) [impl, M]
 - [x] Chunking strategies with overlap and token estimates [impl, M]
 - [x] Persist normalized docs/chunks under `artefacts/<run_id>/` [impl, S]
-- [ ] CLI: `fmf process --connector <name> --select "**/*.md"` [impl, S]
+- [x] CLI: `fmf process --connector <name> --select "**/*.md"` [impl, S]
 - [ ] Unit tests for chunking, parsing, loaders [tests, M]
 
 Dependencies: M2
