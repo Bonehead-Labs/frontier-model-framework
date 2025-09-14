@@ -79,6 +79,55 @@ class TestConfigModels(unittest.TestCase):
         as_dict = cfg.model_dump() if hasattr(cfg, "model_dump") else cfg
         self.assertAlmostEqual(as_dict["inference"]["azure_openai"]["temperature"], 0.5)
 
+    def test_cli_set_overrides_take_highest_precedence(self):
+        from fmf.config.loader import load_config
+
+        yaml_path = self._write_yaml(
+            """
+            project: frontier-model-framework
+            inference:
+              provider: azure_openai
+              azure_openai:
+                endpoint: https://example
+                api_version: 2024
+                deployment: d
+                temperature: 0.1
+            """
+        )
+
+        # Env sets to 0.5, CLI --set will raise to 0.9
+        os.environ["FMF_INFERENCE__AZURE_OPENAI__TEMPERATURE"] = "0.5"
+        cfg = load_config(yaml_path, set_overrides=["inference.azure_openai.temperature=0.9"])
+        as_dict = cfg.model_dump() if hasattr(cfg, "model_dump") else cfg
+        self.assertAlmostEqual(as_dict["inference"]["azure_openai"]["temperature"], 0.9)
+
+    def test_cli_set_parses_types_with_yaml(self):
+        from fmf.config.loader import load_config
+
+        yaml_path = self._write_yaml(
+            """
+            project: frontier-model-framework
+            processing:
+              text:
+                chunking:
+                  max_tokens: 100
+                  overlap: 10
+            """
+        )
+
+        sets = [
+            "processing.text.chunking.max_tokens=256",
+            "processing.text.chunking.overlap=32",
+            "processing.text.normalize_whitespace=true",
+            "export.sinks=[{name: s3_results, type: s3, bucket: my, mode: append}]",
+        ]
+        cfg = load_config(yaml_path, set_overrides=sets)
+        as_dict = cfg.model_dump() if hasattr(cfg, "model_dump") else cfg
+        self.assertEqual(as_dict["processing"]["text"]["chunking"]["max_tokens"], 256)
+        self.assertEqual(as_dict["processing"]["text"]["chunking"]["overlap"], 32)
+        self.assertIs(as_dict["processing"]["text"]["normalize_whitespace"], True)
+        self.assertIsInstance(as_dict["export"]["sinks"], list)
+
 
 if __name__ == "__main__":
     unittest.main()

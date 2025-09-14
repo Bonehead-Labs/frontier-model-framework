@@ -40,6 +40,37 @@ def _apply_env_overrides(cfg: dict, env: Mapping[str, str]) -> None:
         _set_by_path(cfg, keypath, _parse_scalar(v))
 
 
+def _parse_set_item(item: str) -> tuple[list[str], Any]:
+    """Parse a single --set "key.path=value" string.
+
+    - Uses first '=' as separator.
+    - Key path split by '.' into a list.
+    - Value parsed via YAML safe_load for rich types; falls back to scalar parsing.
+    """
+    if "=" not in item:
+        raise ValueError(f"Invalid --set override (missing '='): {item!r}")
+    key, raw = item.split("=", 1)
+    path = [p for p in key.strip().split(".") if p]
+    if not path:
+        raise ValueError(f"Invalid --set override (empty key path): {item!r}")
+    try:
+        value = yaml.safe_load(raw)
+    except Exception:
+        value = _parse_scalar(raw)
+    return path, value
+
+
+def parse_set_overrides(sets: list[str] | None) -> dict[str, Any]:
+    """Convert a list of --set items into a nested dict suitable for deep merging."""
+    result: dict[str, Any] = {}
+    if not sets:
+        return result
+    for item in sets:
+        path, value = _parse_set_item(item)
+        _set_by_path(result, path, value)
+    return result
+
+
 def _deep_merge(dst: dict, src: dict) -> dict:
     for k, v in src.items():
         if isinstance(v, dict) and isinstance(dst.get(k), dict):
@@ -54,6 +85,7 @@ def load_config(
     *,
     env: Mapping[str, str] | None = None,
     overrides: dict[str, Any] | None = None,
+    set_overrides: list[str] | None = None,
 ):
     """Load config from YAML with optional env and dict overrides.
 
@@ -69,6 +101,10 @@ def load_config(
     if overrides:
         _deep_merge(data, overrides)
 
+    # Highest precedence: explicit --set overrides
+    if set_overrides:
+        _deep_merge(data, parse_set_overrides(set_overrides))
+
     # Attempt to validate with Pydantic if available
     try:
         model = FmfConfig.model_validate(data)  # type: ignore[attr-defined]
@@ -77,3 +113,7 @@ def load_config(
         # Fallback to raw dict when validation not available
         return data
 
+__all__ = [
+    "load_config",
+    "parse_set_overrides",
+]

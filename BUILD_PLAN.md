@@ -25,7 +25,7 @@ Dependencies: none
 
 - [x] Config models with Pydantic v2 (`src/fmf/config/models.py`) matching AGENTS.md [impl, M]
   - Acceptance: Loads `fmf.yaml`; env/CLI overrides; schema validation errors are actionable.
-- [ ] Config loader with merge + precedence and `--set key.path=value` overrides [impl, M]
+- [x] Config loader with merge + precedence and `--set key.path=value` overrides [impl, M]
   - Acceptance: Values override per spec; supports double underscore env paths.
 - [ ] Secret providers [impl, M]
   - [ ] `.env`/environment provider [impl, S]
