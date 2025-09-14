@@ -58,7 +58,7 @@ Dependencies: M1
 ## Milestone M3 — Data Processing Layer
 
 - [x] Core dataclasses: `Document`, `Chunk`, `Blob` [impl, S]
-- [ ] File type detection and loaders: text/markdown/html/csv/xlsx/parquet/png/jpg [impl, L]
+- [x] File type detection and loaders: text/markdown/html/csv/xlsx/parquet/png/jpg [impl, L]
 - [ ] Text normalization + markdown preservation [impl, S]
 - [ ] Table parsing (CSV/XLSX, optional parquet to markdown) [impl, M]
 - [ ] OCR integration (tesseract or pluggable) [impl, M]
