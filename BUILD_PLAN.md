@@ -74,14 +74,14 @@ Dependencies: M2
 ## Milestone M4 — Inference Layer
 
 - [x] Unified message/types and `LLMClient` protocol [impl, S]
-- [ ] Azure OpenAI adapter [impl, M]
+- [x] Azure OpenAI adapter [impl, M]
   - Acceptance: `complete()` works with system/user/assistant messages; supports temperature/max_tokens.
-- [ ] AWS Bedrock adapter [impl, M]
+- [x] AWS Bedrock adapter [impl, M]
   - Acceptance: `complete()` works for selected model; error mapping to `InferenceError`.
-- [ ] Retries, backoff, rate limiting [impl, S]
-- [ ] Optional streaming callbacks [impl, S]
-- [ ] Cost accounting (tokens/estimates when available) [impl, S]
-- [ ] CLI: `fmf infer --prompt <id>#<v> --input file.txt` [impl, S]
+- [x] Retries, backoff, rate limiting [impl, S]
+- [x] Optional streaming callbacks [impl, S]
+- [x] Cost accounting (tokens/estimates when available) [impl, S]
+- [x] CLI: `fmf infer --prompt <id>#<v> --input file.txt` [impl, S]
 
 Dependencies: M1
 

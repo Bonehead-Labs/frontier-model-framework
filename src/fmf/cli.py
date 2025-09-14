@@ -14,6 +14,8 @@ from .processing.persist import persist_artefacts
 import datetime as _dt
 import os as _os
 import uuid as _uuid
+from .inference.unified import build_llm_client
+from .inference.base_client import Message
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -86,7 +88,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers.add_parser("prompt", help="Prompt registry operations")
     subparsers.add_parser("run", help="Execute a chain from YAML")
-    subparsers.add_parser("infer", help="Single-shot inference using a prompt version")
+    # infer
+    infer = subparsers.add_parser("infer", help="Single-shot inference using a prompt version")
+    infer.add_argument("--input", required=True, help="Path to input text file")
+    infer.add_argument("-c", "--config", default="fmf.yaml", help="Path to config YAML")
+    infer.add_argument(
+        "--set",
+        dest="set_overrides",
+        action="append",
+        default=[],
+        help="Override config values: key.path=value (repeatable)",
+    )
+    infer.add_argument("--system", default="You are a helpful assistant.", help="Optional system prompt")
     subparsers.add_parser("export", help="Export artefacts/results to configured sinks")
 
     return parser
@@ -216,6 +229,24 @@ def _cmd_process(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_infer(args: argparse.Namespace) -> int:
+    setup_logging()
+    cfg = load_config(args.config, set_overrides=args.set_overrides)
+    inference_cfg = getattr(cfg, "inference", None)
+    if inference_cfg is None and isinstance(cfg, dict):
+        inference_cfg = cfg.get("inference")
+    if not inference_cfg:
+        print("No inference config in YAML.")
+        return 2
+    client = build_llm_client(inference_cfg)
+    with open(args.input, "r", encoding="utf-8") as f:
+        user_text = f.read()
+    messages = [Message(role="system", content=args.system), Message(role="user", content=user_text)]
+    comp = client.complete(messages, temperature=None, max_tokens=None)
+    print(comp.text)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -245,6 +276,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_connect_ls(args)
     if args.command == "process":
         return _cmd_process(args)
+    if args.command == "infer":
+        return _cmd_infer(args)
 
     # Stub handlers: print a friendly message for unimplemented commands
     print(f"Command '{args.command}' is not implemented yet.")
