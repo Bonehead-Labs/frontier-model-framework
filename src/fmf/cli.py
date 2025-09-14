@@ -16,6 +16,7 @@ import os as _os
 import uuid as _uuid
 from .inference.unified import build_llm_client
 from .inference.base_client import Message
+from .chain.runner import run_chain
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -78,6 +79,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Glob selector(s) for inputs (repeatable)",
     )
+
+    # run chain
+    run_cmd = subparsers.add_parser("run", help="Execute a chain from YAML")
+    run_cmd.add_argument("--chain", required=True, help="Path to chain YAML")
+    run_cmd.add_argument("-c", "--config", default="fmf.yaml", help="Path to config YAML")
     process.add_argument("-c", "--config", default="fmf.yaml", help="Path to config YAML")
     process.add_argument(
         "--set",
@@ -87,7 +93,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override config values: key.path=value (repeatable)",
     )
     subparsers.add_parser("prompt", help="Prompt registry operations")
-    subparsers.add_parser("run", help="Execute a chain from YAML")
     # infer
     infer = subparsers.add_parser("infer", help="Single-shot inference using a prompt version")
     infer.add_argument("--input", required=True, help="Path to input text file")
@@ -278,6 +283,12 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_process(args)
     if args.command == "infer":
         return _cmd_infer(args)
+    if args.command == "run":
+        # Delegate directly to chain runner
+        res = run_chain(args.chain, fmf_config_path=args.config)
+        print(f"run_id={res['run_id']}")
+        print(f"run_dir={res['run_dir']}")
+        return 0
 
     # Stub handlers: print a friendly message for unimplemented commands
     print(f"Command '{args.command}' is not implemented yet.")
