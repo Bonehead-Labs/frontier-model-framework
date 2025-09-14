@@ -14,6 +14,7 @@ from ..processing.persist import persist_artefacts, ensure_dir
 from ..inference.unified import build_llm_client
 from ..inference.base_client import Message, Completion
 from ..config.loader import load_config
+from ..exporters import build_exporter
 from ..prompts.registry import build_prompt_registry
 from .loader import ChainConfig, ChainStep, load_chain
 
@@ -184,11 +185,34 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
         "metrics": metrics,
         "artefacts": [paths["docs"], paths["chunks"], outputs_file],
     }
-    with open(os.path.join(run_dir, "run.yaml"), "w", encoding="utf-8") as f:
+    run_yaml_path = os.path.join(run_dir, "run.yaml")
+    with open(run_yaml_path, "w", encoding="utf-8") as f:
         import yaml
 
         yaml.safe_dump(run_yaml, f)
 
+    # Optional exports configured in chain outputs
+    export_cfg = getattr(cfg, "export", None) if not isinstance(cfg, dict) else cfg.get("export")
+    sinks = getattr(export_cfg, "sinks", None) if not isinstance(export_cfg, dict) else (export_cfg or {}).get("sinks")
+    if chain.outputs and sinks:
+        for out in chain.outputs:
+            sink_name = out.get("export") if isinstance(out, dict) else None
+            if not sink_name:
+                continue
+            sink_cfg = next((s for s in sinks if (getattr(s, "name", None) if not isinstance(s, dict) else s.get("name")) == sink_name), None)
+            if not sink_cfg:
+                continue
+            exporter = build_exporter(sink_cfg)
+            # For now, export the outputs.jsonl content
+            try:
+                with open(outputs_file, "rb") as f:
+                    payload = f.read()
+                exporter.write(payload, context={"run_id": run_id})
+                exporter.finalize()
+            except Exception:
+                if not chain.continue_on_error:
+                    raise
+    
     return {"run_id": run_id, "artefacts": paths, "run_dir": run_dir, "metrics": metrics}
 
 

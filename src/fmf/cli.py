@@ -17,6 +17,7 @@ import uuid as _uuid
 from .inference.unified import build_llm_client
 from .inference.base_client import Message
 from .chain.runner import run_chain
+from .exporters import build_exporter
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -110,7 +111,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override config values: key.path=value (repeatable)",
     )
     infer.add_argument("--system", default="You are a helpful assistant.", help="Optional system prompt")
-    subparsers.add_parser("export", help="Export artefacts/results to configured sinks")
+    export = subparsers.add_parser("export", help="Export artefacts/results to configured sinks")
+    export.add_argument("--sink", required=True, help="Sink name as defined in config export.sinks")
+    export.add_argument("--input", required=True, help="Path to input file (e.g., artefacts/<run_id>/outputs.jsonl)")
+    export.add_argument("-c", "--config", default="fmf.yaml", help="Path to config YAML")
 
     return parser
 
@@ -257,6 +261,45 @@ def _cmd_infer(args: argparse.Namespace) -> int:
     return 0
 
 
+def _extract_run_id_from_path(path: str) -> str | None:
+    # naive extraction: find 'artefacts/<run_id>/' pattern
+    parts = path.split("/")
+    for i, p in enumerate(parts):
+        if p == "artefacts" and i + 1 < len(parts):
+            return parts[i + 1]
+    return None
+
+
+def _cmd_export(args: argparse.Namespace) -> int:
+    setup_logging()
+    cfg = load_config(args.config)
+    export_cfg = getattr(cfg, "export", None) if not isinstance(cfg, dict) else cfg.get("export")
+    if not export_cfg:
+        print("No export configuration in YAML.")
+        return 2
+    sinks = getattr(export_cfg, "sinks", None) if not isinstance(export_cfg, dict) else export_cfg.get("sinks")
+    if not sinks:
+        print("No sinks configured.")
+        return 2
+    target = None
+    for s in sinks:
+        name = getattr(s, "name", None) if not isinstance(s, dict) else s.get("name")
+        if name == args.sink:
+            target = s
+            break
+    if not target:
+        print(f"Sink '{args.sink}' not found.")
+        return 2
+    exp = build_exporter(target)
+    with open(args.input, "rb") as f:
+        payload = f.read()
+    run_id = _extract_run_id_from_path(args.input)
+    res = exp.write(payload, context={"run_id": run_id})
+    exp.finalize()
+    for p in res.paths:
+        print(p)
+    return 0
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -294,6 +337,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"run_id={res['run_id']}")
         print(f"run_dir={res['run_dir']}")
         return 0
+    if args.command == "export":
+        return _cmd_export(args)
     if args.command == "prompt" and getattr(args, "prompt_cmd", None) == "register":
         from .prompts.registry import build_prompt_registry
         cfg = load_config(args.config)

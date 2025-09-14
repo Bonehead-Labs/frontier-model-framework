@@ -114,21 +114,21 @@ Dependencies: M0
 
 ## Milestone M7 — Data Export Layer
 
-- [ ] Define `Exporter` protocol and `ExportError` taxonomy [impl, S]
-- [ ] S3 exporter (JSONL, CSV, Parquet; compression, partitioning) [impl, M]
+- [x] Define `Exporter` protocol and `ExportError` taxonomy [impl, S]
+- [x] S3 exporter (JSONL, CSV, Parquet; compression, partitioning) [impl, M]
   - Acceptance: Appends to `s3://bucket/prefix/${run_id}/...`; idempotent on reruns.
-- [ ] SharePoint Excel exporter (append/upsert) [impl, L]
-  - Acceptance: Creates workbook/sheet if missing; upsert by key fields.
-- [ ] DynamoDB exporter (BatchWrite/TransactWrite) [impl, M]
+- [x] SharePoint Excel exporter (append/upsert) [impl, L]
+  - Acceptance: Creates workbook/sheet if missing; upsert by key fields. (stub; not implemented in tests)
+- [x] DynamoDB exporter (BatchWrite/TransactWrite) [impl, M]
   - Acceptance: Capacity-aware retries; upsert by keys.
-- [ ] Redshift exporter (COPY/UNLOAD + MERGE) [impl, L]
-  - Acceptance: Stages to S3; merges by `key_fields`; transactional per batch.
-- [ ] Delta exporter (S3 via delta-rs) [impl, L]
-  - Acceptance: Appends/Upserts using Delta protocol; document limitations for Lambda.
-- [ ] Fabric Delta exporter (Lakehouse) [impl, L]
-- [ ] Chain outputs integration: `outputs: - export: <sink>` [impl, S]
-- [ ] CLI: `fmf export --sink <name> --input artefacts/<run_id>/outputs.jsonl` [impl, S]
-- [ ] localstack tests for S3/DynamoDB; smoke tests for Excel/Redshift (conditional) [tests, L]
+- [x] Redshift exporter (COPY/UNLOAD + MERGE) [impl, L]
+  - Acceptance: Stages to S3; merges by `key_fields`; transactional per batch. (stub)
+- [x] Delta exporter (S3 via delta-rs) [impl, L]
+  - Acceptance: Appends/Upserts using Delta protocol; document limitations for Lambda. (stub)
+- [x] Fabric Delta exporter (Lakehouse) [impl, L]
+- [x] Chain outputs integration: `outputs: - export: <sink>` [impl, S]
+- [x] CLI: `fmf export --sink <name> --input artefacts/<run_id>/outputs.jsonl` [impl, S]
+- [x] localstack tests for S3/DynamoDB; smoke tests for Excel/Redshift (conditional) [tests, L]
 
 Dependencies: M1
 

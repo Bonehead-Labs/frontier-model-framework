@@ -62,6 +62,12 @@ class TestChainRunner(unittest.TestCase):
             inference:
               provider: azure_openai
               azure_openai: {{ endpoint: https://example, api_version: 2024-02-15-preview, deployment: x }}
+            export:
+              sinks:
+                - name: s3_results
+                  type: s3
+                  bucket: b
+                  prefix: fmf/outputs/${{run_id}}/
             """
         )
 
@@ -81,7 +87,7 @@ class TestChainRunner(unittest.TestCase):
                 )
             )
 
-        chain_path = self._write_yaml(
+            chain_path = self._write_yaml(
             f"""
             name: summarize-markdown
             inputs:
@@ -100,11 +106,23 @@ class TestChainRunner(unittest.TestCase):
                 output: report
             concurrency: 2
             continue_on_error: true
+            outputs:
+              - export: s3_results
+                from: report
             """
         )
 
         # Patch LLM client
         runner_mod.build_llm_client = lambda cfg: DummyClient()  # type: ignore
+        # patch boto3 for exporter s3
+        import types as _types
+        out = {"puts": []}
+
+        class S3:
+            def put_object(self, **kwargs):
+                out["puts"].append(kwargs)
+
+        sys.modules["boto3"] = _types.SimpleNamespace(client=lambda name: S3())  # type: ignore
 
         res = run_chain(chain_path, fmf_config_path=cfg_path)
         self.assertIn("run_id", res)
@@ -123,6 +141,8 @@ class TestChainRunner(unittest.TestCase):
         with open(outputs, "r", encoding="utf-8") as f:
             lines = f.read().strip().splitlines()
             self.assertTrue(any("OUT:" in line for line in lines))
+        # ensure exporter attempted
+        self.assertTrue(out["puts"])  # S3 export happened
 
         dtemp.cleanup()
         prompts_dir.cleanup()
