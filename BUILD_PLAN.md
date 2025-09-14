@@ -59,7 +59,7 @@ Dependencies: M1
 
 - [x] Core dataclasses: `Document`, `Chunk`, `Blob` [impl, S]
 - [x] File type detection and loaders: text/markdown/html/csv/xlsx/parquet/png/jpg [impl, L]
-- [ ] Text normalization + markdown preservation [impl, S]
+- [x] Text normalization + markdown preservation [impl, S]
 - [ ] Table parsing (CSV/XLSX, optional parquet to markdown) [impl, M]
 - [ ] OCR integration (tesseract or pluggable) [impl, M]
 - [ ] Chunking strategies with overlap and token estimates [impl, M]
