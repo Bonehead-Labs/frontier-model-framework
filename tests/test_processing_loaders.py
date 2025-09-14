@@ -42,6 +42,45 @@ class TestProcessingLoaders(unittest.TestCase):
         with self.assertRaises(ProcessingError):
             load_document_from_bytes(source_uri="file:///t.xlsx", filename="t.xlsx", data=b"not-a-real-xlsx", processing_cfg={})
 
+    def test_xlsx_to_markdown_with_mock(self):
+        from fmf.processing.loaders import load_document_from_bytes
+        import sys as _sys
+        import types as _types
+
+        # Mock openpyxl with a minimal interface
+        saved = dict(_sys.modules)
+        try:
+            openpyxl = _types.ModuleType("openpyxl")
+
+            class FakeSheet:
+                def iter_rows(self, values_only=True):
+                    return iter([
+                        ("h1", "h2"),
+                        ("a", "b"),
+                    ])
+
+            class WB:
+                def __init__(self):
+                    self.active = FakeSheet()
+
+            def load_workbook(fp, read_only=True, data_only=True):
+                return WB()
+
+            openpyxl.load_workbook = load_workbook
+            _sys.modules["openpyxl"] = openpyxl
+
+            d = load_document_from_bytes(
+                source_uri="file:///t.xlsx",
+                filename="t.xlsx",
+                data=b"ignored",
+                processing_cfg={"tables": {"to_markdown": True}},
+            )
+            self.assertIn("| h1 | h2 |", d.text)
+            self.assertIn("| a | b |", d.text)
+        finally:
+            _sys.modules.clear()
+            _sys.modules.update(saved)
+
     def test_image_without_ocr_blob_only(self):
         from fmf.processing.loaders import load_document_from_bytes
 
@@ -54,4 +93,3 @@ class TestProcessingLoaders(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
