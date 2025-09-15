@@ -44,13 +44,54 @@ class BedrockClient:
         on_token: Optional[Callable[[str], None]] = None,
     ) -> Completion:
         # Map unified messages to Anthropic Claude-style input via system + user
-        system_parts = [m.content for m in messages if m.role == "system"]
-        user_parts = [m.content for m in messages if m.role == "user"]
-        sysmsg = "\n\n".join(system_parts) if system_parts else None
-        prompt = "\n\n".join(user_parts)
+        system_texts: list[str] = []
+        user_contents: list[dict] = []
+
+        def _map_parts(parts):
+            out = []
+            for part in parts:
+                if not isinstance(part, dict):
+                    continue
+                ptype = part.get("type")
+                if ptype == "text":
+                    out.append({"type": "text", "text": part.get("text", "")})
+                elif ptype in {"image", "image_url"}:
+                    url = part.get("url")
+                    if not url and isinstance(part.get("image_url"), dict):
+                        url = part.get("image_url", {}).get("url")
+                    if url and url.startswith("data:"):
+                        # parse data URL: data:<media>;base64,<data>
+                        try:
+                            header, b64 = url.split(",", 1)
+                            media = header.split(";")[0].split(":", 1)[1]
+                            out.append({
+                                "type": "image",
+                                "source": {"type": "base64", "media_type": media, "data": b64},
+                            })
+                        except Exception:
+                            continue
+                    elif url:
+                        out.append({"type": "image", "source": {"type": "url", "url": url}})
+                elif ptype == "image_base64":
+                    media = part.get("media_type", "image/png")
+                    out.append({"type": "image", "source": {"type": "base64", "media_type": media, "data": part.get("data", "")}})
+            return out
+
+        for m in messages:
+            if m.role == "system":
+                if isinstance(m.content, str):
+                    system_texts.append(m.content)
+            elif m.role == "user":
+                if isinstance(m.content, list):
+                    user_contents.extend(_map_parts(m.content))
+                else:
+                    # plain text
+                    user_contents.append({"type": "text", "text": str(m.content)})
+
+        sysmsg = "\n\n".join(system_texts) if system_texts else None
         payload = {
             "anthropic_version": "bedrock-2023-05-31",
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", "content": user_contents}],
             "temperature": temperature,
             "max_tokens": max_tokens,
             "system": sysmsg,
@@ -81,4 +122,3 @@ class BedrockClient:
 
 
 __all__ = ["BedrockClient"]
-

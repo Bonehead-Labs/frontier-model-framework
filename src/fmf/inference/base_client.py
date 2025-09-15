@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Callable, Iterable, Literal, Optional, Protocol
+from typing import Any, Callable, Iterable, Literal, Optional, Protocol
 
 
 Role = Literal["system", "user", "assistant", "tool"]
@@ -11,7 +11,9 @@ Role = Literal["system", "user", "assistant", "tool"]
 @dataclass
 class Message:
     role: Role
-    content: str
+    # content can be plain text or a list of multimodal parts
+    # parts: {"type": "text", "text": str} | {"type": "image_url", "url": str} | {"type": "image_base64", "data": str, "media_type": str}
+    content: Any
 
 
 @dataclass

@@ -48,8 +48,29 @@ class AzureOpenAIClient:
         on_token: Optional[Callable[[str], None]] = None,
     ) -> Completion:
         # Map to Azure OpenAI chat.completions payload
+        def _map_content(c):
+            if isinstance(c, list):
+                out = []
+                for part in c:
+                    if not isinstance(part, dict):
+                        continue
+                    ptype = part.get("type")
+                    if ptype == "text":
+                        out.append({"type": "text", "text": part.get("text", "")})
+                    elif ptype in {"image_url", "image"}:
+                        url = part.get("url")
+                        if not url and isinstance(part.get("image_url"), dict):
+                            url = part.get("image_url", {}).get("url")
+                        if not url and part.get("type") == "image_base64":
+                            data = part.get("data")
+                            media = part.get("media_type", "image/png")
+                            url = f"data:{media};base64,{data}"
+                        out.append({"type": "image_url", "image_url": {"url": url}})
+                return out
+            return c
+
         payload = {
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "messages": [{"role": m.role, "content": _map_content(m.content)} for m in messages],
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
@@ -80,4 +101,3 @@ class AzureOpenAIClient:
 
 
 __all__ = ["AzureOpenAIClient"]
-

@@ -13,6 +13,7 @@ class ChainStep:
     inputs: Dict[str, Any]
     output: str
     params: Optional[Dict[str, Any]] = None
+    mode: Optional[str] = None  # e.g., 'multimodal'
     # Post-processing expectations
     output_expects: Optional[str] = None  # 'json' | None
     output_schema: Optional[Dict[str, Any]] = None
@@ -58,6 +59,7 @@ def load_chain(path: str) -> ChainConfig:
                 inputs=s.get("inputs", {}),
                 output=output_name,
                 params=s.get("params"),
+                mode=s.get("mode"),
                 output_expects=output_expects,
                 output_schema=output_schema,
                 output_parse_retries=output_parse_retries,

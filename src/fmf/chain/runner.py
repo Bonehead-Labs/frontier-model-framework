@@ -11,6 +11,7 @@ from ..connectors import build_connector
 from ..processing.loaders import load_document_from_bytes
 from ..processing.table_rows import iter_table_rows
 from ..processing.chunking import chunk_text
+from ..types import Chunk
 from ..processing.persist import persist_artefacts, ensure_dir
 from ..inference.unified import build_llm_client
 from ..inference.base_client import Message, Completion
@@ -179,6 +180,11 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
                     overlap = getattr(ch_cfg, "overlap", 150) if ch_cfg and not isinstance(ch_cfg, dict) else (ch_cfg or {}).get("overlap", 150) if ch_cfg else 150
                     splitter = getattr(ch_cfg, "splitter", "by_sentence") if ch_cfg and not isinstance(ch_cfg, dict) else (ch_cfg or {}).get("splitter", "by_sentence") if ch_cfg else "by_sentence"
                     chunks.extend(chunk_text(doc_id=doc.id, text=doc.text, max_tokens=max_tokens, overlap=overlap, splitter=splitter))
+                elif doc.blobs:
+                    # Ensure we still create a work item for multimodal steps even without text
+                    from ..processing.chunking import estimate_tokens
+
+                    chunks.append(Chunk(id=f"{doc.id}_ch0", doc_id=doc.id, text="", tokens_estimate=estimate_tokens("") ))
 
     # Execute steps
     context_all: Dict[str, List[Any]] = {}
@@ -268,7 +274,21 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
                 for k, v in inputs.items():
                     body = body.replace("{{ " + k + " }}", str(v))
                     body = body.replace("${" + k + "}", str(v))
-                messages = [Message(role="system", content="You are a helpful assistant."), Message(role="user", content=body)]
+                if (step.mode or "").lower() == "multimodal":
+                    # Gather image blobs for this doc and build content parts
+                    doc = next((d for d in documents if d.id == ck.doc_id), None)
+                    parts = [{"type": "text", "text": body}]
+                    if doc and doc.blobs:
+                        import base64 as _b64
+
+                        for b in doc.blobs:
+                            if b.data is None:
+                                continue
+                            url = f"data:{b.media_type};base64,{_b64.b64encode(b.data).decode('ascii')}"
+                            parts.append({"type": "image_url", "url": url})
+                    messages = [Message(role="system", content="You are a helpful assistant."), Message(role="user", content=parts)]
+                else:
+                    messages = [Message(role="system", content="You are a helpful assistant."), Message(role="user", content=body)]
                 params = step.params or {}
                 with trace_span(f"step.{step.id}"):
                     comp: Completion = client.complete(
