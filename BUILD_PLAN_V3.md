@@ -135,10 +135,10 @@ V3-M1 — Programmatic Runner
 - [x] Unit test: in-memory chain dict + DummyClient → outputs.jsonl exists; metrics present.
 
 V3-M2 — SDK Skeleton (csv_analyse)
-- [ ] Add package src/fmf/sdk/__init__.py, client.py implementing FMF.from_env and csv_analyse
-- [ ] CSV row path: build chain dict with inputs.mode: table_rows; step JSON enforcement (id + analysed); outputs save jsonl/csv; leverage run_chain_config
-- [ ] Optionally parse outputs.jsonl to return in-memory records
-- [ ] Tests:
+- [x] Add package src/fmf/sdk/__init__.py, client.py implementing FMF.from_env and csv_analyse
+- [x] CSV row path: build chain dict with inputs.mode: table_rows; step JSON enforcement (id + analysed); outputs save jsonl/csv; leverage run_chain_config
+- [x] Optionally parse outputs.jsonl to return in-memory records
+- [x] Tests:
   - csv_analyse writes artefacts and returns records (DummyClient)
   - honours custom save paths
 
