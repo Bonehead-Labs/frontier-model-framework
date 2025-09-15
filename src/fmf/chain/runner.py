@@ -164,7 +164,7 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
     run_id = dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     paths = persist_artefacts(artefacts_dir=artefacts_dir or "artefacts", run_id=run_id, documents=documents, chunks=chunks)
     run_dir = os.path.dirname(paths["docs"])
-    # write outputs.jsonl if there is final output
+    # write outputs.jsonl for the last step by default
     outputs_file = os.path.join(run_dir, "outputs.jsonl")
     if context_all:
         last_key = list(context_all.keys())[-1]
@@ -211,19 +211,39 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
     # Optional exports configured in chain outputs
     export_cfg = getattr(cfg, "export", None) if not isinstance(cfg, dict) else cfg.get("export")
     sinks = getattr(export_cfg, "sinks", None) if not isinstance(export_cfg, dict) else (export_cfg or {}).get("sinks")
+
+    def _serialize_jsonl(values: List[Any]) -> bytes:
+        buf = []
+        for i, v in enumerate(values):
+            rec = {
+                "run_id": run_id,
+                "record_id": i,
+                "output": v,
+            }
+            buf.append(json.dumps(rec))
+        return ("\n".join(buf) + ("\n" if buf else "")).encode("utf-8")
+
     if chain.outputs and sinks:
         for out in chain.outputs:
-            sink_name = out.get("export") if isinstance(out, dict) else None
+            if not isinstance(out, dict):
+                continue
+            sink_name = out.get("export")
             if not sink_name:
                 continue
+            # Pick the source step outputs; default to last step
+            from_key = out.get("from") or (list(context_all.keys())[-1] if context_all else None)
+            if not from_key or from_key not in context_all:
+                if not chain.continue_on_error:
+                    raise RuntimeError(f"outputs.from references unknown key: {from_key!r}")
+                else:
+                    continue
+            values = context_all[from_key]
+            payload = _serialize_jsonl(values)
             sink_cfg = next((s for s in sinks if (getattr(s, "name", None) if not isinstance(s, dict) else s.get("name")) == sink_name), None)
             if not sink_cfg:
                 continue
             exporter = build_exporter(sink_cfg)
-            # For now, export the outputs.jsonl content
             try:
-                with open(outputs_file, "rb") as f:
-                    payload = f.read()
                 exporter.write(payload, context={"run_id": run_id})
                 exporter.finalize()
             except Exception:
