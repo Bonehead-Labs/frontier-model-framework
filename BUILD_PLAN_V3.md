@@ -143,9 +143,9 @@ V3-M2 — SDK Skeleton (csv_analyse)
   - honours custom save paths
 
 V3-M3 — SDK: text_files and images_analyse
-- [ ] Implement text_files with chunking defaults (by_sentence) and outputs save
-- [ ] Implement images_analyse with multimodal step and JSON enforcement optional
-- [ ] Tests for both with DummyClient
+- [x] Implement text_files with chunking defaults (by_sentence) and outputs save
+- [x] Implement images_analyse with multimodal step and JSON enforcement optional
+- [x] Tests for both with DummyClient
 
 V3-M4 — CLI Wrappers
 - [ ] Add fmf csv analyse subcommand (thin wrapper to FMF.csv_analyse)

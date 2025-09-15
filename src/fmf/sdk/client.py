@@ -95,6 +95,43 @@ class FMF:
                 return list(_read_jsonl(os.path.join(run_dir, "outputs.jsonl")))
             return None
 
+    def text_files(
+        self,
+        *,
+        prompt: str,
+        connector: str | None = None,
+        select: List[str] | None = None,
+        save_jsonl: str | None = None,
+        return_records: bool = False,
+    ) -> Optional[List[Dict[str, Any]]]:
+        c = connector or self._auto_connector_name()
+        save_jsonl = save_jsonl or "artefacts/${run_id}/text_outputs.jsonl"
+        chain = _build_text_chain(connector=c, select=select, prompt=prompt, save_jsonl=save_jsonl)
+        res = run_chain_config(chain, fmf_config_path=self._config_path or "fmf.yaml")
+        if not return_records:
+            return None
+        out_path = save_jsonl.replace("${run_id}", res.get("run_id", ""))
+        return list(_read_jsonl(out_path))
+
+    def images_analyse(
+        self,
+        *,
+        prompt: str,
+        connector: str | None = None,
+        select: List[str] | None = None,
+        save_jsonl: str | None = None,
+        expects_json: bool = True,
+        return_records: bool = False,
+    ) -> Optional[List[Dict[str, Any]]]:
+        c = connector or self._auto_connector_name()
+        save_jsonl = save_jsonl or "artefacts/${run_id}/image_outputs.jsonl"
+        chain = _build_images_chain(connector=c, select=select, prompt=prompt, save_jsonl=save_jsonl, expects_json=expects_json)
+        res = run_chain_config(chain, fmf_config_path=self._config_path or "fmf.yaml")
+        if not return_records:
+            return None
+        out_path = save_jsonl.replace("${run_id}", res.get("run_id", ""))
+        return list(_read_jsonl(out_path))
+
     # --- Helpers ---
     def _auto_connector_name(self) -> str:
         cfg = self._cfg
@@ -122,3 +159,32 @@ def _read_jsonl(path: str):
                 continue
             yield json.loads(s)
 
+
+# --- Additional SDK operations ---
+def _build_text_chain(
+    *, connector: str, select: List[str] | None, prompt: str, save_jsonl: str | None
+) -> Dict[str, Any]:
+    return {
+        "name": "text-files",
+        "inputs": {"connector": connector, "select": select or ["**/*.md"]},
+        "steps": [
+            {"id": "s", "prompt": f"inline: {prompt}\n{{{{ text }}}}", "inputs": {"text": "${chunk.text}"}, "output": "result"}
+        ],
+        "outputs": ([{"save": save_jsonl, "from": "result", "as": "jsonl"}] if save_jsonl else []),
+    }
+
+
+def _build_images_chain(
+    *, connector: str, select: List[str] | None, prompt: str, save_jsonl: str | None, expects_json: bool
+) -> Dict[str, Any]:
+    output_block: Any = "analysis"
+    if expects_json:
+        output_block = {"name": "analysis", "expects": "json", "parse_retries": 1}
+    return {
+        "name": "images-analyse",
+        "inputs": {"connector": connector, "select": select or ["**/*.{png,jpg,jpeg}"]},
+        "steps": [
+            {"id": "vision", "mode": "multimodal", "prompt": f"inline: {prompt}", "inputs": {}, "output": output_block}
+        ],
+        "outputs": ([{"save": save_jsonl, "from": "analysis", "as": "jsonl"}] if save_jsonl else []),
+    }
