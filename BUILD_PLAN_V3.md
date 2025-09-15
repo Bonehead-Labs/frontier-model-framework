@@ -148,9 +148,9 @@ V3-M3 — SDK: text_files and images_analyse
 - [x] Tests for both with DummyClient
 
 V3-M4 — CLI Wrappers
-- [ ] Add fmf csv analyse subcommand (thin wrapper to FMF.csv_analyse)
-- [ ] Add fmf text infer and fmf images analyse wrappers
-- [ ] Tests: CLI triggers SDK and prints output paths
+- [x] Add fmf csv analyse subcommand (thin wrapper to FMF.csv_analyse)
+- [x] Add fmf text infer and fmf images analyse wrappers
+- [x] Tests: CLI triggers SDK and prints output paths
 
 V3-M4.5 — Auto Source Resolution
 - [ ] Implement source auto‑resolution in SDK (path/URL → connector)

@@ -18,6 +18,7 @@ from .inference.unified import build_llm_client
 from .inference.base_client import Message
 from .chain.runner import run_chain
 from .exporters import build_exporter
+from .sdk import FMF
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -33,6 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers = parser.add_subparsers(dest="command", metavar="{keys,connect,process,prompt,run,infer,export}")
+    # Extend metavar to include sdk wrappers
+    subparsers.metavar = "{keys,connect,process,prompt,run,infer,export,csv,text,images}"
 
     # keys subcommands
     keys = subparsers.add_parser("keys", help="Manage/test secret resolution")
@@ -115,6 +118,35 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--sink", required=True, help="Sink name as defined in config export.sinks")
     export.add_argument("--input", required=True, help="Path to input file (e.g., artefacts/<run_id>/outputs.jsonl)")
     export.add_argument("-c", "--config", default="fmf.yaml", help="Path to config YAML")
+
+    # SDK wrappers: csv analyse
+    csv_cmd = subparsers.add_parser("csv", help="CSV workflows (SDK)")
+    csv_sub = csv_cmd.add_subparsers(dest="csv_cmd")
+    csv_an = csv_sub.add_parser("analyse", help="Analyse CSV comments per-row and save outputs")
+    csv_an.add_argument("--input", required=True, help="Path to CSV file")
+    csv_an.add_argument("--text-col", default="Comment")
+    csv_an.add_argument("--id-col", default="ID")
+    csv_an.add_argument("--prompt", required=True)
+    csv_an.add_argument("--save-csv", default=None)
+    csv_an.add_argument("--save-jsonl", default=None)
+    csv_an.add_argument("-c", "--config", default="fmf.yaml")
+
+    # SDK wrappers: text and images
+    text_cmd = subparsers.add_parser("text", help="Text file workflows (SDK)")
+    text_sub = text_cmd.add_subparsers(dest="text_cmd")
+    text_inf = text_sub.add_parser("infer", help="Infer over text files and save outputs")
+    text_inf.add_argument("--select", action="append", default=None)
+    text_inf.add_argument("--prompt", required=True)
+    text_inf.add_argument("--save-jsonl", default=None)
+    text_inf.add_argument("-c", "--config", default="fmf.yaml")
+
+    img_cmd = subparsers.add_parser("images", help="Image workflows (SDK)")
+    img_sub = img_cmd.add_subparsers(dest="images_cmd")
+    img_an = img_sub.add_parser("analyse", help="Analyse images and save outputs")
+    img_an.add_argument("--select", action="append", default=None)
+    img_an.add_argument("--prompt", required=True)
+    img_an.add_argument("--save-jsonl", default=None)
+    img_an.add_argument("-c", "--config", default="fmf.yaml")
     export.add_argument(
         "--input-format",
         choices=["auto", "jsonl", "csv", "parquet"],
@@ -410,6 +442,26 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "export":
         return _cmd_export(args)
+    # SDK wrappers
+    if args.command == "csv" and getattr(args, "csv_cmd", None) == "analyse":
+        f = FMF.from_env(args.config)
+        f.csv_analyse(
+            input=args.input,
+            text_col=args.text_col,
+            id_col=args.id_col,
+            prompt=args.prompt,
+            save_csv=args.save_csv,
+            save_jsonl=args.save_jsonl,
+        )
+        return 0
+    if args.command == "text" and getattr(args, "text_cmd", None) == "infer":
+        f = FMF.from_env(args.config)
+        f.text_files(prompt=args.prompt, select=args.select, save_jsonl=args.save_jsonl)
+        return 0
+    if args.command == "images" and getattr(args, "images_cmd", None) == "analyse":
+        f = FMF.from_env(args.config)
+        f.images_analyse(prompt=args.prompt, select=args.select, save_jsonl=args.save_jsonl)
+        return 0
     if args.command == "prompt" and getattr(args, "prompt_cmd", None) == "register":
         from .prompts.registry import build_prompt_registry
         cfg = load_config(args.config)
