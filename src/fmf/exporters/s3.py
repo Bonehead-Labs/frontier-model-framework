@@ -6,7 +6,7 @@ import io
 import json
 import os
 import uuid
-from typing import Any, Iterable
+from typing import Any, Iterable, List, Dict
 
 from .base import ExportError, ExportResult
 
@@ -55,25 +55,82 @@ class S3Exporter:
         if "date" in (self.partition_by or []):
             parts.append(f"date={_now_date()}")
         # unique object name for append semantics
-        ext = ".jsonl" if self.format == "jsonl" else ".bin"
+        if self.format == "jsonl":
+            ext = ".jsonl"
+        elif self.format == "csv":
+            ext = ".csv"
+        elif self.format == "parquet":
+            ext = ".parquet"
+        else:
+            ext = ".bin"
         if self.compression == "gzip":
             ext += ".gz"
         parts.append(f"part-{uuid.uuid4().hex}{ext}")
         return "/".join([p for p in parts if p])
 
-    def _serialize(self, recs: Iterable[dict[str, Any]] | bytes | str) -> bytes:
-        if isinstance(recs, bytes):
-            data = recs
-        elif isinstance(recs, str):
-            data = recs.encode("utf-8")
+    def _ensure_records(self, recs: Iterable[dict[str, Any]] | bytes | str) -> List[Dict[str, Any]]:
+        if isinstance(recs, (bytes, str)):
+            # Interpret as JSONL and parse
+            text = recs.decode("utf-8") if isinstance(recs, (bytes, bytearray)) else recs
+            rows: List[Dict[str, Any]] = []
+            for line in text.splitlines():
+                s = line.strip()
+                if not s:
+                    continue
+                try:
+                    rows.append(json.loads(s))
+                except Exception:
+                    # fallback: wrap as {output: raw}
+                    rows.append({"output": s})
+            return rows
         else:
-            # assume iterable of dicts -> jsonl
+            return list(recs)
+
+    def _serialize(self, recs: Iterable[dict[str, Any]] | bytes | str) -> bytes:
+        fmt = self.format
+        if fmt == "csv":
+            records = self._ensure_records(recs)
+            # Collect headers from union of keys
+            headers: List[str] = []
+            seen: set[str] = set()
+            for r in records:
+                for k in r.keys():
+                    if k not in seen:
+                        seen.add(k)
+                        headers.append(k)
             buf = io.StringIO()
-            count = 0
-            for r in recs:
-                buf.write(json.dumps(r, ensure_ascii=False) + "\n")
-                count += 1
+            w = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")  # not used directly, keep to illustrate approach
+            csvw = io.StringIO()
+            import csv as _csv
+
+            wtr = _csv.writer(buf)
+            wtr.writerow(headers)
+            for r in records:
+                wtr.writerow(["" if r.get(h) is None else (json.dumps(r[h]) if isinstance(r[h], (dict, list)) else str(r[h])) for h in headers])
             data = buf.getvalue().encode("utf-8")
+        elif fmt == "parquet":
+            try:
+                import pyarrow as pa  # type: ignore
+                import pyarrow.parquet as pq  # type: ignore
+            except Exception as e:
+                raise ExportError("Parquet export requires optional dependency 'pyarrow'.") from e
+            records = self._ensure_records(recs)
+            # Normalize to columns; let pyarrow infer
+            table = pa.Table.from_pylist(records)
+            bio = io.BytesIO()
+            # Note: parquet internal compression can be configured by environment or left default; external gzip may still apply below
+            pq.write_table(table, bio)
+            data = bio.getvalue()
+        else:  # jsonl or unknown -> fallback to jsonl
+            if isinstance(recs, bytes):
+                data = recs
+            elif isinstance(recs, str):
+                data = recs.encode("utf-8")
+            else:
+                buf = io.StringIO()
+                for r in recs:
+                    buf.write(json.dumps(r, ensure_ascii=False) + "\n")
+                data = buf.getvalue().encode("utf-8")
         if self.compression == "gzip":
             return gzip.compress(data)
         return data
@@ -104,4 +161,3 @@ class S3Exporter:
 
 
 __all__ = ["S3Exporter"]
-

@@ -86,6 +86,12 @@ fmf infer --input path/to/text.txt -c fmf.yaml
 fmf export --sink s3_results --input artefacts/<run_id>/outputs.jsonl -c fmf.yaml
 ```
 
+Notes on S3 export formats
+- The S3 exporter supports `format: jsonl | csv | parquet` in `export.sinks`.
+- For `csv` and `parquet`, if you pass JSONL bytes as input, the exporter parses JSONL into rows first.
+- Parquet requires optional dependency `pyarrow` (install extras: `.[parquet]`).
+- Exporter serializes all records in-memory before upload; for very large datasets prefer partitioning or streaming to S3 in stages.
+
 ## Overrides and Profiles
 
 - Quick overrides via environment (double underscores for nesting):

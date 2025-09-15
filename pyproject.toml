@@ -35,3 +35,6 @@ redshift = [
 excel = [
   "openpyxl>=3.1,<4",
 ]
+parquet = [
+  "pyarrow>=14,<17",
+]
