@@ -36,17 +36,17 @@ These gaps map to the following prioritized milestones and tasks:
 - [x] Docs: schema-based example (sentiment classification) with failure handling.
 
 ## Milestone R4 — S3 Export Formats (CSV/Parquet)
-- [ ] Extend `exporters.s3` to honor `format: csv|parquet` and `compression`:
+- [x] Extend `exporters.s3` to honor `format: csv|parquet` and `compression`:
   - CSV: accept iterable of dicts or JSONL bytes; normalize and write CSV.
   - Parquet: add optional dependency (`pyarrow`) and write Parquet with schema inference.
-- [ ] Add `pyproject.toml` optional extra for Parquet (e.g., `[project.optional-dependencies].parquet = ["pyarrow>=...<..."]`).
-- [ ] Tests: unit coverage for CSV and Parquet write paths (with patched boto3).
-- [ ] Docs: note memory considerations and required extras.
+- [x] Add `pyproject.toml` optional extra for Parquet (e.g., `[project.optional-dependencies].parquet = ["pyarrow>=...<..."]`).
+- [x] Tests: unit coverage for CSV and Parquet write paths (with patched boto3 and fake pyarrow).
+- [x] Docs: note memory considerations and required extras.
 
 ## Milestone R5 — CLI Export Ergonomics
-- [ ] Teach `fmf export` to parse JSONL input into iterable dicts when a sink requires records (e.g., DynamoDB, SharePoint Excel, Redshift stub), while still passing raw bytes to S3/Delta-type sinks.
-- [ ] Auto-detect input format from file extension (`.jsonl`, `.csv`, `.parquet`) and provide `--input-format` override.
-- [ ] Validate sink config vs. provided input format and fail fast with actionable errors.
+- [x] Teach `fmf export` to parse JSONL input into iterable dicts when a sink requires records (e.g., DynamoDB, SharePoint Excel, Redshift stub), while still passing raw bytes to S3/Delta-type sinks.
+- [x] Auto-detect input format from file extension (`.jsonl`, `.csv`, `.parquet`) and provide `--input-format` override.
+- [x] Validate sink config vs. provided input format and fail fast with actionable errors (e.g., Parquet requires `pyarrow`).
 
 ## Milestone R6 — Multimodal Adapters
 - [ ] Expand message model to support content parts (text + image). Keep backward compatibility with `content: str`.

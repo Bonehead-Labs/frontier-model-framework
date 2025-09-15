@@ -92,6 +92,14 @@ Notes on S3 export formats
 - Parquet requires optional dependency `pyarrow` (install extras: `.[parquet]`).
 - Exporter serializes all records in-memory before upload; for very large datasets prefer partitioning or streaming to S3 in stages.
 
+CLI export ergonomics
+- For sinks that expect records (e.g., DynamoDB), `fmf export` auto-parses inputs:
+  - `.jsonl` → list of dicts
+  - `.csv` → list of dicts via headers
+  - `.parquet` → list of dicts via `pyarrow` (requires `.[parquet]`)
+- Override auto-detection with `--input-format jsonl|csv|parquet`.
+- For S3/Delta sinks, the CLI passes raw bytes through to the exporter.
+
 ## Overrides and Profiles
 
 - Quick overrides via environment (double underscores for nesting):

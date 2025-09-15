@@ -115,6 +115,12 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--sink", required=True, help="Sink name as defined in config export.sinks")
     export.add_argument("--input", required=True, help="Path to input file (e.g., artefacts/<run_id>/outputs.jsonl)")
     export.add_argument("-c", "--config", default="fmf.yaml", help="Path to config YAML")
+    export.add_argument(
+        "--input-format",
+        choices=["auto", "jsonl", "csv", "parquet"],
+        default="auto",
+        help="Input format when exporting (default: auto by extension)",
+    )
 
     return parser
 
@@ -291,10 +297,75 @@ def _cmd_export(args: argparse.Namespace) -> int:
         print(f"Sink '{args.sink}' not found.")
         return 2
     exp = build_exporter(target)
-    with open(args.input, "rb") as f:
-        payload = f.read()
+
+    # Determine sink type from target config for ergonomics
+    sink_type = getattr(target, "type", None) if not isinstance(target, dict) else target.get("type")
+
+    def _detect_format(path: str, arg: str) -> str:
+        if arg and arg != "auto":
+            return arg
+        lower = path.lower()
+        if lower.endswith(".jsonl") or lower.endswith(".jsonl.gz"):
+            return "jsonl"
+        if lower.endswith(".csv") or lower.endswith(".csv.gz"):
+            return "csv"
+        if lower.endswith(".parquet"):
+            return "parquet"
+        # Default to jsonl
+        return "jsonl"
+
+    def _load_records(path: str, fmt: str) -> list[dict]:
+        if fmt == "jsonl":
+            import gzip as _gzip
+
+            opener = open
+            if path.lower().endswith(".gz"):
+                opener = _gzip.open  # type: ignore[assignment]
+            rows: list[dict] = []
+            with opener(path, "rt", encoding="utf-8") as f:  # type: ignore[misc]
+                for line in f:
+                    s = line.strip()
+                    if not s:
+                        continue
+                    try:
+                        import json as _json
+
+                        rows.append(_json.loads(s))
+                    except Exception:
+                        raise SystemExit(2)
+            return rows
+        if fmt == "csv":
+            import csv as _csv
+            rows: list[dict] = []
+            with open(path, "r", encoding="utf-8") as f:
+                r = _csv.DictReader(f)
+                for rec in r:
+                    rows.append({k: v for k, v in rec.items()})
+            return rows
+        if fmt == "parquet":
+            try:
+                import pyarrow.parquet as pq  # type: ignore
+            except Exception:
+                print("Parquet input requires optional dependency 'pyarrow'.", file=sys.stderr)
+                raise SystemExit(2)
+            table = pq.read_table(path)
+            return table.to_pylist()  # list of dicts
+        raise SystemExit(2)
+
+    fmt = _detect_format(args.input, getattr(args, "input_format", "auto"))
     run_id = _extract_run_id_from_path(args.input)
-    res = exp.write(payload, context={"run_id": run_id})
+
+    # Decide if sink requires records
+    record_sinks = {"dynamodb", "sharepoint_excel", "redshift", "fabric_delta"}
+    if sink_type in record_sinks:
+        # load records and send as iterable of dicts
+        records = _load_records(args.input, fmt)
+        res = exp.write(records, context={"run_id": run_id})
+    else:
+        # pass raw bytes (S3, Delta)
+        with open(args.input, "rb") as f:
+            payload = f.read()
+        res = exp.write(payload, context={"run_id": run_id})
     exp.finalize()
     for p in res.paths:
         print(p)
