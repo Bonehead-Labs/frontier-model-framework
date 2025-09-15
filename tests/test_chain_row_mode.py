@@ -46,19 +46,19 @@ class TestChainRowMode(unittest.TestCase):
         )
 
         chain_path = self._write_yaml(
-            """
+            f"""
             name: per-row
-            inputs: { connector: local_docs, select: ["**/*.csv"], mode: table_rows, table: { text_column: message } }
+            inputs: {{ connector: local_docs, select: ["**/*.csv"], mode: table_rows, table: {{ text_column: message }} }}
             steps:
               - id: s
                 prompt: "inline: ECHO {{ text }}"
-                inputs: { text: "${row.text}" }
+                inputs: {{ text: "${{row.text}}" }}
                 output: o
             outputs:
-              - save: ${ART}/out/${run_id}/sel.jsonl
+              - save: {root}/out/${{run_id}}/sel.jsonl
                 from: o
             """
-        ).replace("${ART}", root)
+        )
 
         import fmf.chain.runner as runner_mod
         runner_mod.build_llm_client = lambda cfg: DummyClient()  # type: ignore
@@ -86,4 +86,3 @@ class TestChainRowMode(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
