@@ -20,13 +20,13 @@ These gaps map to the following prioritized milestones and tasks:
 - [x] Docs: update example chain to demonstrate `save/from/as` working; note current defaults and limitations.
 
 ## Milestone R2 — Row Mode & Table Workflows
-- [ ] Add table row iterator utility in processing (CSV/XLSX/Parquet) with options:
+- [x] Add table row iterator utility in processing (CSV/XLSX/Parquet) with options:
   - `text_column` (string concatenation or render subset of columns)
   - `pass_through` (list of columns echoed into `${row.<col>}`)
-- [ ] Extend chain inputs to enable row mode (e.g., `inputs: { connector: ..., select: [...], mode: table_rows, table: { text_column: ..., pass_through: [...] } }`).
-- [ ] Update runner to generate per-row contexts and `${row.*}` templating; produce one output per row.
-- [ ] Ensure row-mode artefacts are persisted deterministically (docs, rows) and integrate with R1 `save/from/as`.
-- [ ] Docs + example: CSV → per-row JSONL and Parquet export.
+- [x] Extend chain inputs to enable row mode (e.g., `inputs: { connector: ..., select: [...], mode: table_rows, table: { text_column: ..., pass_through: [...] } }`).
+- [x] Update runner to generate per-row contexts and `${row.*}` templating; produce one output per row.
+- [x] Ensure row-mode artefacts are persisted deterministically (docs, rows) and integrate with R1 `save/from/as`).
+- [x] Docs + example: CSV → per-row JSONL and Parquet export (example provided as JSONL; Parquet can be produced via `as: parquet` when `pyarrow` is installed).
 
 ## Milestone R3 — JSON Output Enforcement
 - [ ] Step-level post-processing config (extend chain schema):
