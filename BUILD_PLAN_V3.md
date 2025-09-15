@@ -181,10 +181,16 @@ Appendix: Backing Changes Summary
 - New: fmf.sdk package (FMF facade)
 - New: CLI wrappers for CSV/Text/Images (optional if time‑boxed)
 - New: ChainBuilder and Recipes for priority workflows
+- New: Recipe YAML parser via SDK.run_recipe and CLI wrapper
 V3-M6 — Quickstart Wizard & Doctor
 - [ ] fmf quickstart wizard (CSV/Text/Images) prints a ready command or Python snippet
  - [x] fmf doctor validates provider/env and prints inferred defaults
  - [x] Tests: non‑interactive modes and basic output
 - New: Auto Source Resolution
 - New: Quickstart wizard and Doctor diagnostics
+V3-M2.5 — Recipe YAML (first-class)
+- [x] Add SDK.run_recipe() that loads a recipe YAML and dispatches to csv_analyse/text_files/images_analyse
+- [x] Add CLI wrapper: `fmf recipe run --file <recipe.yaml>`
+- [x] Provide example recipe: examples/recipes/csv_analyse.yaml
+- [x] Unit test: recipe run (csv) with DummyClient saves files
 - Existing: connectors, processing (table_rows), inference, outputs.save/as unchanged — SDK builds on them.

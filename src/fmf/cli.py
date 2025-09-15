@@ -151,6 +151,13 @@ def build_parser() -> argparse.ArgumentParser:
     img_an.add_argument("--prompt", required=True)
     img_an.add_argument("--save-jsonl", default=None)
     img_an.add_argument("-c", "--config", default="fmf.yaml")
+
+    # Recipe runner
+    recipe_cmd = subparsers.add_parser("recipe", help="Run high-level recipes (SDK)")
+    recipe_sub = recipe_cmd.add_subparsers(dest="recipe_cmd")
+    recipe_run = recipe_sub.add_parser("run", help="Run a recipe YAML file")
+    recipe_run.add_argument("--file", required=True, help="Path to recipe YAML")
+    recipe_run.add_argument("-c", "--config", default="fmf.yaml")
     export.add_argument(
         "--input-format",
         choices=["auto", "jsonl", "csv", "parquet"],
@@ -465,6 +472,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "images" and getattr(args, "images_cmd", None) == "analyse":
         f = FMF.from_env(args.config)
         f.images_analyse(prompt=args.prompt, select=args.select, save_jsonl=args.save_jsonl)
+        return 0
+    if args.command == "recipe" and getattr(args, "recipe_cmd", None) == "run":
+        f = FMF.from_env(args.config)
+        f.run_recipe(args.file)
         return 0
     if args.command == "prompt" and getattr(args, "prompt_cmd", None) == "register":
         from .prompts.registry import build_prompt_registry

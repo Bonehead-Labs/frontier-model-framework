@@ -1,0 +1,8 @@
+recipe: csv_analyse
+input: ./data/comments.csv
+id_col: ID
+text_col: Comment
+prompt: Summarise this comment concisely.
+save:
+  csv: artefacts/${run_id}/analysis.csv
+  jsonl: artefacts/${run_id}/analysis.jsonl

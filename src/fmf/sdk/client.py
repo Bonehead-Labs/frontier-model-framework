@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from ..chain.runner import run_chain_config
 from ..config.loader import load_config
+import yaml as _yaml
 
 
 class FMF:
@@ -131,6 +132,54 @@ class FMF:
             return None
         out_path = save_jsonl.replace("${run_id}", res.get("run_id", ""))
         return list(_read_jsonl(out_path))
+
+    # --- Recipe runner ---
+    def run_recipe(self, path: str) -> dict:
+        """Run a high-level recipe YAML (csv_analyse | text_files | images_analyse).
+
+        The recipe file is a minimal schema, e.g.:
+          recipe: csv_analyse
+          input: ./data/comments.csv
+          id_col: ID
+          text_col: Comment
+          prompt: Summarise this comment
+          save: { csv: artefacts/${run_id}/analysis.csv, jsonl: artefacts/${run_id}/analysis.jsonl }
+        """
+        with open(path, "r", encoding="utf-8") as f:
+            data = _yaml.safe_load(f) or {}
+        rtype = (data.get("recipe") or "").strip()
+        if rtype == "csv_analyse":
+            return {
+                "result": self.csv_analyse(
+                    input=data["input"],
+                    text_col=data.get("text_col", "Comment"),
+                    id_col=data.get("id_col", "ID"),
+                    prompt=data.get("prompt", "Summarise"),
+                    save_csv=(data.get("save") or {}).get("csv"),
+                    save_jsonl=(data.get("save") or {}).get("jsonl"),
+                    connector=data.get("connector"),
+                )
+            }
+        if rtype == "text_files":
+            return {
+                "result": self.text_files(
+                    prompt=data.get("prompt", "Summarise"),
+                    connector=data.get("connector"),
+                    select=data.get("select"),
+                    save_jsonl=(data.get("save") or {}).get("jsonl"),
+                )
+            }
+        if rtype == "images_analyse":
+            return {
+                "result": self.images_analyse(
+                    prompt=data.get("prompt", "Describe"),
+                    connector=data.get("connector"),
+                    select=data.get("select"),
+                    save_jsonl=(data.get("save") or {}).get("jsonl"),
+                    expects_json=bool(data.get("expects_json", True)),
+                )
+            }
+        raise ValueError(f"Unsupported or missing recipe type: {rtype!r}")
 
     # --- Helpers ---
     def _auto_connector_name(self) -> str:
