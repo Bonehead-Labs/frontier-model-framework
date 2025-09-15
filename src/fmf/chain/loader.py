@@ -13,6 +13,10 @@ class ChainStep:
     inputs: Dict[str, Any]
     output: str
     params: Optional[Dict[str, Any]] = None
+    # Post-processing expectations
+    output_expects: Optional[str] = None  # 'json' | None
+    output_schema: Optional[Dict[str, Any]] = None
+    output_parse_retries: int = 0
 
 
 @dataclass
@@ -33,13 +37,30 @@ def load_chain(path: str) -> ChainConfig:
     steps_data = data.get("steps") or []
     steps: List[ChainStep] = []
     for s in steps_data:
+        output_name: str
+        output_expects: Optional[str] = None
+        output_schema: Optional[Dict[str, Any]] = None
+        output_parse_retries: int = 0
+
+        out_val = s.get("output", s.get("id"))
+        if isinstance(out_val, dict):
+            output_name = out_val.get("name") or s.get("id")
+            output_expects = out_val.get("expects")
+            output_schema = out_val.get("schema")
+            output_parse_retries = int(out_val.get("parse_retries", 0) or 0)
+        else:
+            output_name = out_val
+
         steps.append(
             ChainStep(
                 id=s["id"],
                 prompt=s.get("prompt") or s.get("prompt_text", ""),
                 inputs=s.get("inputs", {}),
-                output=s.get("output", s["id"]),
+                output=output_name,
                 params=s.get("params"),
+                output_expects=output_expects,
+                output_schema=output_schema,
+                output_parse_retries=output_parse_retries,
             )
         )
     outputs = data.get("outputs")

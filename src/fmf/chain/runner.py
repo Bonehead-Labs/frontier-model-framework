@@ -68,9 +68,52 @@ def _load_prompt_text(ref: str, *, registry) -> Tuple[str, Dict[str, str]]:
     return pv.template, {"id": pv.id, "version": pv.version, "content_hash": pv.content_hash}
 
 
+def _try_parse_json(text: str) -> Tuple[Any | None, str | None]:
+    try:
+        return json.loads(text), None
+    except Exception as e:
+        return None, str(e)
+
+
+def _repair_json(text: str) -> str:
+    # Remove common code fences and prefixes
+    t = text.strip()
+    if t.startswith("```"):
+        # drop first line fence and possible language tag
+        t = "\n".join(t.splitlines()[1:])
+        if t.endswith("```"):
+            t = "\n".join(t.splitlines()[:-1])
+    # Extract substring between first '{' and last '}'
+    if "{" in t and "}" in t:
+        start = t.find("{")
+        end = t.rfind("}")
+        if start >= 0 and end > start:
+            return t[start : end + 1]
+    return t
+
+
+def _validate_min_schema(obj: Any, schema: Dict[str, Any] | None) -> Tuple[bool, str | None]:
+    if not schema:
+        return True, None
+    # Minimal validation: support type: object and required: [...]
+    if schema.get("type") == "object" and not isinstance(obj, dict):
+        return False, "schema.type=object but got non-object"
+    req = schema.get("required")
+    if isinstance(req, list) and isinstance(obj, dict):
+        missing = [k for k in req if k not in obj]
+        if missing:
+            return False, f"missing required keys: {', '.join(missing)}"
+    return True, None
+
+
 def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str, Any]:
     chain = load_chain(chain_path)
     cfg = load_config(fmf_config_path)
+    # Reset global metrics for a clean run record
+    try:
+        _metrics.clear()
+    except Exception:
+        pass
     inference_cfg = getattr(cfg, "inference", None) if not isinstance(cfg, dict) else cfg.get("inference")
     processing_cfg = getattr(cfg, "processing", None) if not isinstance(cfg, dict) else cfg.get("processing")
     artefacts_dir = getattr(cfg, "artefacts_dir", None) if not isinstance(cfg, dict) else cfg.get("artefacts_dir") or "artefacts"
@@ -165,6 +208,35 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
                         temperature=params.get("temperature"),
                         max_tokens=params.get("max_tokens"),
                     )
+                # Post-process if expects JSON
+                if (step.output_expects or "").lower() == "json":
+                    retries = max(0, int(step.output_parse_retries or 0))
+                    parsed, err = _try_parse_json(comp.text)
+                    attempts = 0
+                    while parsed is None and attempts < retries:
+                        repaired = _repair_json(comp.text)
+                        parsed, err = _try_parse_json(repaired)
+                        attempts += 1
+                    if parsed is None:
+                        try:
+                            from ..observability import metrics as _m
+
+                            _m.inc("json_parse_failures", 1)
+                            _m.inc(f"json_parse_failures.{step.id}", 1)
+                        except Exception:
+                            pass
+                        return type("C", (), {"text": {"parse_error": True, "raw_text": comp.text}, "prompt_tokens": comp.prompt_tokens, "completion_tokens": comp.completion_tokens})()
+                    ok, schema_err = _validate_min_schema(parsed, step.output_schema)
+                    if not ok:
+                        try:
+                            from ..observability import metrics as _m
+
+                            _m.inc("json_parse_failures", 1)
+                            _m.inc(f"json_parse_failures.{step.id}", 1)
+                        except Exception:
+                            pass
+                        return type("C", (), {"text": {"parse_error": True, "raw_text": comp.text, "schema_error": schema_err}, "prompt_tokens": comp.prompt_tokens, "completion_tokens": comp.completion_tokens})()
+                    return type("C", (), {"text": parsed, "prompt_tokens": comp.prompt_tokens, "completion_tokens": comp.completion_tokens})()
                 return comp
 
             results: List[str] = []
@@ -204,6 +276,34 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
                         temperature=params.get("temperature"),
                         max_tokens=params.get("max_tokens"),
                     )
+                if (step.output_expects or "").lower() == "json":
+                    retries = max(0, int(step.output_parse_retries or 0))
+                    parsed, err = _try_parse_json(comp.text)
+                    attempts = 0
+                    while parsed is None and attempts < retries:
+                        repaired = _repair_json(comp.text)
+                        parsed, err = _try_parse_json(repaired)
+                        attempts += 1
+                    if parsed is None:
+                        try:
+                            from ..observability import metrics as _m
+
+                            _m.inc("json_parse_failures", 1)
+                            _m.inc(f"json_parse_failures.{step.id}", 1)
+                        except Exception:
+                            pass
+                        return type("C", (), {"text": {"parse_error": True, "raw_text": comp.text}, "prompt_tokens": comp.prompt_tokens, "completion_tokens": comp.completion_tokens})()
+                    ok, schema_err = _validate_min_schema(parsed, step.output_schema)
+                    if not ok:
+                        try:
+                            from ..observability import metrics as _m
+
+                            _m.inc("json_parse_failures", 1)
+                            _m.inc(f"json_parse_failures.{step.id}", 1)
+                        except Exception:
+                            pass
+                        return type("C", (), {"text": {"parse_error": True, "raw_text": comp.text, "schema_error": schema_err}, "prompt_tokens": comp.prompt_tokens, "completion_tokens": comp.completion_tokens})()
+                    return type("C", (), {"text": parsed, "prompt_tokens": comp.prompt_tokens, "completion_tokens": comp.completion_tokens})()
                 return comp
 
             results = []
