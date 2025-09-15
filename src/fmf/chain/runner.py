@@ -190,7 +190,29 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
         fmt = (as_fmt or "jsonl").lower()
         if fmt == "jsonl":
             return _serialize_jsonl(values)
-        # CSV/Parquet handled in later milestone tasks; default to JSONL for now
+        if fmt == "csv":
+            import io as _io
+            import csv as _csv
+            buf = _io.StringIO()
+            w = _csv.writer(buf)
+            w.writerow(["output"])  # header
+            for v in values:
+                w.writerow([str(v)])
+            return buf.getvalue().encode("utf-8")
+        if fmt == "parquet":
+            try:
+                import io as _io
+                import pyarrow as pa  # type: ignore
+                import pyarrow.parquet as pq  # type: ignore
+
+                arr = pa.array([str(v) for v in values])
+                table = pa.table({"output": arr})
+                bio = _io.BytesIO()
+                pq.write_table(table, bio)
+                return bio.getvalue()
+            except Exception as e:
+                raise RuntimeError("Parquet serialization requires optional dependency 'pyarrow'.") from e
+        # Fallback: JSONL
         return _serialize_jsonl(values)
 
     # Process 'save' outputs before composing run.yaml
