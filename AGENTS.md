@@ -11,6 +11,7 @@ A pluggable framework for frontier LLMs across providers (Azure via Azure OpenAI
 - Observable: structured logs, metrics, and run artifacts
 - Resilient: retries, backoff, rate limiting, idempotent operations
 - Async-first where practical for throughput
+ - Developer UX: first‑class Python SDK and convenience CLI; YAML remains available but optional
 
 ## Layered Architecture
 - Data Connection Layer: Configurable connectors for SharePoint, S3, and local files
@@ -66,6 +67,7 @@ A pluggable framework for frontier LLMs across providers (Azure via Azure OpenAI
   - `processing/` – loaders, parsers, chunkers, ocr, table readers
   - `inference/` – `base_client.py`, `azure_openai.py`, `bedrock.py`, `unified.py`, `chains/`
   - `prompts/` – registry, storage backends, templates
+  - `sdk/` – high‑level developer API (FMF facade: csv_analyse, text_files, images_analyse)
 - `observability/` – logging, metrics, tracing
 - `types.py` – common dataclasses (Document, Chunk, RunRecord, etc.)
   - `exporters/` – sink writers (s3, sharepoint_excel, delta, redshift, dynamodb)
@@ -344,7 +346,7 @@ class LLMClient(Protocol):
         ...  # optional; provider-dependent
 ```
 
-`Message` supports `role` in {system, user, assistant, tool} and optional `images` for multimodal pipelines.
+`Message` supports `role` in {system, user, assistant, tool} and multimodal content parts (text + image) when available.
 
 ## Provider Configs
 - Azure OpenAI
@@ -556,6 +558,30 @@ auth:
 
 ---
 
+# Python SDK (Convenience)
+
+For developer convenience, an optional high‑level SDK exposes simple methods that internally build a chain and call the runner:
+
+```python
+from fmf.sdk import FMF
+
+fmf = FMF.from_env("fmf.yaml")  # auto‑loads config; falls back to sensible defaults
+
+# CSV per‑row analysis – produces artefacts and can return in‑memory records
+records = fmf.csv_analyse(
+    input="./data/comments.csv",
+    text_col="Comment",
+    id_col="ID",
+    prompt="Summarise this comment concisely.",
+    save_csv="artefacts/${run_id}/analysis.csv",
+    return_records=True,
+)
+```
+
+Internally the SDK calls a programmatic runner (run_chain_config) to execute the generated chain; artefacts and metrics behave the same as with YAML‑driven runs.
+
+---
+
 # CLI (Proposed)
 
 - `fmf keys test` – verify secret resolution for the current profile
@@ -566,6 +592,11 @@ auth:
 - `fmf infer --prompt <id>#<version> --input file.txt` – single-shot completion
 - `fmf export --sink <name> --input artefacts/<run_id>/outputs.jsonl` – write outputs to a configured sink
 - `fmf run --chain chains/sample.yaml --sinks s3_results,redshift_analytics` – run and export in one go
+
+Convenience wrappers (mirror the SDK):
+- `fmf csv analyse --input comments.csv --text-col Comment --id-col ID --prompt "Summarise"`
+- `fmf text infer --select "**/*.md" --prompt "Summarise"`
+- `fmf images analyse --select "**/*.{png,jpg,jpeg}" --prompt "Describe"`
 
 All commands accept `-c fmf.yaml` and `--set key.path=value` overrides.
 
@@ -705,6 +736,14 @@ Use `FMF_PROFILE=aws_lambda` or `--set profiles.active=aws_lambda` to activate.
 3) Add a prompt YAML (e.g., `prompts/summarize.yaml#v1`)
 4) Run: `fmf process --connector local_docs --select "**/*.md"`
 5) Run: `fmf run --chain chains/sample.yaml --sinks s3_results` and inspect S3 and `artefacts/<run_id>/`
+
+SDK Quickstart (optional)
+
+```python
+from fmf.sdk import FMF
+fmf = FMF.from_env("fmf.yaml")
+fmf.csv_analyse(input="./data/comments.csv", text_col="Comment", id_col="ID", prompt="Summarise")
+```
 
 ---
 
