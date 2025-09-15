@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Tuple
 
 from ..connectors import build_connector
 from ..processing.loaders import load_document_from_bytes
+from ..processing.table_rows import iter_table_rows
 from ..processing.chunking import chunk_text
 from ..processing.persist import persist_artefacts, ensure_dir
 from ..inference.unified import build_llm_client
@@ -95,22 +96,46 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
     registry = build_prompt_registry(preg_cfg)
     client = build_llm_client(inference_cfg)
 
-    # Process inputs to chunks
+    # Process inputs: chunks (default) or table rows
     documents = []
     chunks = []
+    rows: list[dict] = []
+    input_mode = (chain.inputs or {}).get("mode") if isinstance(chain.inputs, dict) else None
     with trace_span("chain.inputs"):
         for ref in conn.list(selector=selector):
             with conn.open(ref, mode="rb") as f:
                 data = f.read()
             doc = load_document_from_bytes(source_uri=ref.uri, filename=ref.name, data=data, processing_cfg=processing_cfg)
             documents.append(doc)
-            if doc.text:
-                text_cfg = getattr(processing_cfg, "text", None) if not isinstance(processing_cfg, dict) else (processing_cfg or {}).get("text")
-                ch_cfg = getattr(text_cfg, "chunking", None) if text_cfg and not isinstance(text_cfg, dict) else (text_cfg or {}).get("chunking") if text_cfg else None
-                max_tokens = getattr(ch_cfg, "max_tokens", 800) if ch_cfg and not isinstance(ch_cfg, dict) else (ch_cfg or {}).get("max_tokens", 800) if ch_cfg else 800
-                overlap = getattr(ch_cfg, "overlap", 150) if ch_cfg and not isinstance(ch_cfg, dict) else (ch_cfg or {}).get("overlap", 150) if ch_cfg else 150
-                splitter = getattr(ch_cfg, "splitter", "by_sentence") if ch_cfg and not isinstance(ch_cfg, dict) else (ch_cfg or {}).get("splitter", "by_sentence") if ch_cfg else "by_sentence"
-                chunks.extend(chunk_text(doc_id=doc.id, text=doc.text, max_tokens=max_tokens, overlap=overlap, splitter=splitter))
+            if input_mode == "table_rows":
+                table_cfg = (chain.inputs or {}).get("table", {}) if isinstance(chain.inputs, dict) else {}
+                text_col = table_cfg.get("text_column")
+                pass_through = table_cfg.get("pass_through")
+                header_row = 1
+                if processing_cfg is not None:
+                    tables_cfg = getattr(processing_cfg, "tables", None) if not isinstance(processing_cfg, dict) else processing_cfg.get("tables")
+                    if tables_cfg is not None:
+                        header_row = getattr(tables_cfg, "header_row", header_row) if not isinstance(tables_cfg, dict) else tables_cfg.get("header_row", header_row)
+                rws = list(
+                    iter_table_rows(
+                        filename=ref.name,
+                        data=data,
+                        text_column=text_col,
+                        pass_through=pass_through,
+                        header_row=header_row or 1,
+                    )
+                )
+                # annotate with meta for artefact persistence
+                for i, r in enumerate(rws):
+                    rows.append({"__doc_id": doc.id, "__source_uri": ref.uri, "__row_index": i, **r})
+            else:
+                if doc.text:
+                    text_cfg = getattr(processing_cfg, "text", None) if not isinstance(processing_cfg, dict) else (processing_cfg or {}).get("text")
+                    ch_cfg = getattr(text_cfg, "chunking", None) if text_cfg and not isinstance(text_cfg, dict) else (text_cfg or {}).get("chunking") if text_cfg else None
+                    max_tokens = getattr(ch_cfg, "max_tokens", 800) if ch_cfg and not isinstance(ch_cfg, dict) else (ch_cfg or {}).get("max_tokens", 800) if ch_cfg else 800
+                    overlap = getattr(ch_cfg, "overlap", 150) if ch_cfg and not isinstance(ch_cfg, dict) else (ch_cfg or {}).get("overlap", 150) if ch_cfg else 150
+                    splitter = getattr(ch_cfg, "splitter", "by_sentence") if ch_cfg and not isinstance(ch_cfg, dict) else (ch_cfg or {}).get("splitter", "by_sentence") if ch_cfg else "by_sentence"
+                    chunks.extend(chunk_text(doc_id=doc.id, text=doc.text, max_tokens=max_tokens, overlap=overlap, splitter=splitter))
 
     # Execute steps
     context_all: Dict[str, List[Any]] = {}
@@ -121,44 +146,81 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
         tmpl, pmeta = _load_prompt_text(step.prompt, registry=registry)
         prompts_used.append(pmeta)
 
-        def run_one(ck):
-            vars_ctx = {
-                "chunk": {"text": ck.text, "source_uri": next((d.source_uri for d in documents if d.id == ck.doc_id), "")},
-                "all": {k: v for k, v in context_all.items()},
-            }
-            # Interpolate inputs into a dict for template context
-            inputs = {k: _interp(v, {**vars_ctx}) for k, v in (step.inputs or {}).items()}
-            # Merge into template: allow {{ var }} style via simple replace of ${var}
-            # Build a user message combining template and rendered inputs
-            body = tmpl
-            for k, v in inputs.items():
-                body = body.replace("{{ " + k + " }}", str(v))
-                body = body.replace("${" + k + "}", str(v))
-            messages = [Message(role="system", content="You are a helpful assistant."), Message(role="user", content=body)]
-            params = step.params or {}
-            with trace_span(f"step.{step.id}"):
-                comp: Completion = client.complete(
-                    messages,
-                    temperature=params.get("temperature"),
-                    max_tokens=params.get("max_tokens"),
-                )
-            return comp
+        if input_mode == "table_rows":
+            def run_one_row(r):
+                vars_ctx = {
+                    "row": {k: v for k, v in r.items() if not k.startswith("__")},
+                    "all": {k: v for k, v in context_all.items()},
+                }
+                inputs = {k: _interp(v, {**vars_ctx}) for k, v in (step.inputs or {}).items()}
+                body = tmpl
+                for k, v in inputs.items():
+                    body = body.replace("{{ " + k + " }}", str(v))
+                    body = body.replace("${" + k + "}", str(v))
+                messages = [Message(role="system", content="You are a helpful assistant."), Message(role="user", content=body)]
+                params = step.params or {}
+                with trace_span(f"step.{step.id}"):
+                    comp: Completion = client.complete(
+                        messages,
+                        temperature=params.get("temperature"),
+                        max_tokens=params.get("max_tokens"),
+                    )
+                return comp
 
-        results: List[str] = []
-        errors = 0
-        with ThreadPoolExecutor(max_workers=max(1, int(chain.concurrency))) as ex:
-            futs = {ex.submit(run_one, ck): ck for ck in chunks}
-            for fut in as_completed(futs):
-                try:
-                    comp = fut.result()
-                    metrics["tokens_prompt"] += comp.prompt_tokens or 0
-                    metrics["tokens_completion"] += comp.completion_tokens or 0
-                    results.append(comp.text)
-                except Exception:
-                    errors += 1
-                    if not chain.continue_on_error:
-                        raise
-        context_all[step.output] = results
+            results: List[str] = []
+            errors = 0
+            with ThreadPoolExecutor(max_workers=max(1, int(chain.concurrency))) as ex:
+                futs = {ex.submit(run_one_row, r): r for r in rows}
+                for fut in as_completed(futs):
+                    try:
+                        comp = fut.result()
+                        metrics["tokens_prompt"] += comp.prompt_tokens or 0
+                        metrics["tokens_completion"] += comp.completion_tokens or 0
+                        results.append(comp.text)
+                    except Exception:
+                        errors += 1
+                        if not chain.continue_on_error:
+                            raise
+            context_all[step.output] = results
+        else:
+            def run_one(ck):
+                vars_ctx = {
+                    "chunk": {"text": ck.text, "source_uri": next((d.source_uri for d in documents if d.id == ck.doc_id), "")},
+                    "all": {k: v for k, v in context_all.items()},
+                }
+                # Interpolate inputs into a dict for template context
+                inputs = {k: _interp(v, {**vars_ctx}) for k, v in (step.inputs or {}).items()}
+                # Merge into template: allow {{ var }} style via simple replace of ${var}
+                # Build a user message combining template and rendered inputs
+                body = tmpl
+                for k, v in inputs.items():
+                    body = body.replace("{{ " + k + " }}", str(v))
+                    body = body.replace("${" + k + "}", str(v))
+                messages = [Message(role="system", content="You are a helpful assistant."), Message(role="user", content=body)]
+                params = step.params or {}
+                with trace_span(f"step.{step.id}"):
+                    comp: Completion = client.complete(
+                        messages,
+                        temperature=params.get("temperature"),
+                        max_tokens=params.get("max_tokens"),
+                    )
+                return comp
+
+            results = []
+            errors = 0
+            with ThreadPoolExecutor(max_workers=max(1, int(chain.concurrency))) as ex:
+                futs = {ex.submit(run_one, ck): ck for ck in chunks}
+                for fut in as_completed(futs):
+                    try:
+                        comp = fut.result()
+                        metrics["tokens_prompt"] += comp.prompt_tokens or 0
+                        metrics["tokens_completion"] += comp.completion_tokens or 0
+                        results.append(comp.text)
+                    except Exception:
+                        errors += 1
+                        if not chain.continue_on_error:
+                            raise
+            context_all[step.output] = results
 
     # Persist artefacts and write run.yaml
     run_id = dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
@@ -215,6 +277,20 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
         # Fallback: JSONL
         return _serialize_jsonl(values)
 
+    # Persist rows artefact for table_rows mode
+    rows_file = None
+    if input_mode == "table_rows":
+        rows_file = os.path.join(run_dir, "rows.jsonl")
+        with open(rows_file, "w", encoding="utf-8") as f:
+            for r in rows:
+                entry = {
+                    "doc_id": r.get("__doc_id"),
+                    "source_uri": r.get("__source_uri"),
+                    "row_index": r.get("__row_index"),
+                    "row": {k: v for k, v in r.items() if not k.startswith("__")},
+                }
+                f.write(json.dumps(entry) + "\n")
+
     # Process 'save' outputs before composing run.yaml
     saved_paths: list[str] = []
     if chain.outputs:
@@ -255,6 +331,11 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
     except Exception:
         cost = None
 
+    artefacts_list = [paths["docs"], paths["chunks"], outputs_file]
+    if rows_file:
+        artefacts_list.append(rows_file)
+    artefacts_list.extend(saved_paths)
+
     run_yaml = {
         "run_id": run_id,
         "profile": getattr(cfg, "run_profile", None) if not isinstance(cfg, dict) else cfg.get("run_profile"),
@@ -264,7 +345,7 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
             "name": getattr(inference_cfg, "provider", None) if not isinstance(inference_cfg, dict) else inference_cfg.get("provider"),
         },
         "metrics": {**metrics, **_metrics.get_all(), "cost_estimate_usd": cost},
-        "artefacts": [paths["docs"], paths["chunks"], outputs_file, *saved_paths],
+        "artefacts": artefacts_list,
     }
     run_yaml_path = os.path.join(run_dir, "run.yaml")
     with open(run_yaml_path, "w", encoding="utf-8") as f:
