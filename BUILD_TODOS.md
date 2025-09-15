@@ -12,12 +12,12 @@ Assessment of current capabilities (repo state):
 These gaps map to the following prioritized milestones and tasks:
 
 ## Milestone R1 — Chain Outputs Parity (save/from/as)
-- [ ] Implement chain outputs semantics in runner:
-  - Respect `outputs[*].from` to select which step output to persist/export.
-  - Support `outputs[*].save` to write to a path (with `${run_id}` interpolation) alongside `outputs.jsonl`.
-  - Support `outputs[*].as` values: `jsonl` (default), `csv`, `parquet` (serialize selected output accordingly).
-- [ ] Update `artefacts/<run_id>/` to include the saved file with correct extension and add its path to `run.yaml`.
-- [ ] Docs: update example chain to demonstrate `save/from/as` working; note current defaults and limitations.
+- [x] Implement chain outputs semantics in runner:
+  - [x] Respect `outputs[*].from` to select which step output to persist/export.
+  - [x] Support `outputs[*].save` to write to a path (with `${run_id}` interpolation) alongside `outputs.jsonl`.
+  - [x] Support `outputs[*].as` values: `jsonl` (default), `csv`, `parquet` (serialize selected output accordingly).
+- [x] Update `artefacts/<run_id>/` to include the saved file with correct extension and add its path to `run.yaml`.
+- [x] Docs: update example chain to demonstrate `save/from/as` working; note current defaults and limitations.
 
 ## Milestone R2 — Row Mode & Table Workflows
 - [ ] Add table row iterator utility in processing (CSV/XLSX/Parquet) with options:
