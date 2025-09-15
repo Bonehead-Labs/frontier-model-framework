@@ -14,9 +14,9 @@ steps:
       summaries: "${all.chunk_summary}"
     output: report
 outputs:
-  - save: artefacts/${run_id}/report.md
+  - save: artefacts/${run_id}/report.jsonl
     from: report
+    as: jsonl
   - export: s3_results
     from: report
     as: jsonl
-
