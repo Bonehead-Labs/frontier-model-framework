@@ -37,18 +37,68 @@ def _render_template(template: str, variables: Dict[str, Any]) -> str:
     return out
 
 
+def _limit_joined(text: str) -> str:
+    try:
+        import os as _os
+
+        max_chars = int(_os.getenv("FMF_JOIN_MAX_CHARS", "0") or 0)
+        if max_chars and max_chars > 0 and len(text) > max_chars:
+            return text[:max_chars] + "\n… [truncated]"
+    except Exception:
+        pass
+    return text
+
+
+def _join_values(values: List[Any], sep: str = "\n") -> str:
+    # Optional sampling to avoid extreme sizes
+    try:
+        import os as _os
+
+        max_items = int(_os.getenv("FMF_JOIN_MAX_ITEMS", "0") or 0)
+    except Exception:
+        max_items = 0
+    if max_items and max_items > 0 and len(values) > max_items:
+        values = values[:max_items] + [f"… [+{len(values) - max_items} more]"]
+    out = sep.join(map(str, values))
+    return _limit_joined(out)
+
+
 def _interp(value: Any, context: Dict[str, Any]) -> Any:
     if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
-        path = value[2:-1]
+        expr = value[2:-1].strip()
+        # Function: join(expr, "sep")
+        if expr.startswith("join(") and expr.endswith(")"):
+            inner = expr[len("join(") : -1]
+            # split on last comma to allow commas in sep strings
+            if "," in inner:
+                arg_expr, sep_raw = inner.rsplit(",", 1)
+                sep = sep_raw.strip()
+                # remove surrounding single or double quotes
+                if (sep.startswith('"') and sep.endswith('"')) or (sep.startswith("'") and sep.endswith("'")):
+                    sep = sep[1:-1]
+            else:
+                arg_expr, sep = inner, "\n"
+            # Evaluate the inner expression as ${...}
+            inner_val = _interp("${" + arg_expr.strip() + "}", context)
+            if isinstance(inner_val, list):
+                return _join_values(inner_val, sep)
+            if isinstance(inner_val, str) and ("\n" in inner_val or "\r" in inner_val):
+                return _join_values(inner_val.splitlines(), sep)
+            return str(inner_val)
+
+        path = expr
         # Support dotted paths e.g., chunk.text or all.prev_output
         cur: Any = context
         for part in path.split("."):
             if part == "*":
                 # special: join all lists into single string
                 if isinstance(cur, list):
-                    return "\n".join(map(str, cur))
+                    return _join_values(cur)
                 return cur
             cur = cur.get(part) if isinstance(cur, dict) else getattr(cur, part, None)
+        # If result is a list (e.g., all.output), join with newlines by default
+        if isinstance(cur, list):
+            return _join_values(cur)
         return cur
     return value
 

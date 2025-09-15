@@ -55,8 +55,8 @@ These gaps map to the following prioritized milestones and tasks:
 - [x] Example chain: basic image analysis producing structured JSON; document provider limitations and required extras.
 
 ## Milestone R7 — Interpolation & Aggregation Quality
-- [ ] Implement `${all.*}` flattening and simple joins (e.g., `${join(all.chunk_summary, "\n")}`) to improve aggregation prompts.
-- [ ] Sanitize and limit aggregated payload size (cutoff or sampling) to avoid overlong prompts.
+- [x] Implement `${all.*}` flattening and simple joins (e.g., `${join(all.chunk_summary, "\n")}`) to improve aggregation prompts.
+- [x] Sanitize and limit aggregated payload size (cutoff or sampling) to avoid overlong prompts.
 
 Notes on scope alignment
 - The config models already advertise features like S3 `format: parquet` and chain `outputs: ...`; the code doesn’t fully implement them yet. R1/R4 bring behavior in line with the declared schema and the examples.
