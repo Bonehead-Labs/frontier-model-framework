@@ -1,12 +1,13 @@
 # Generic Text File Analysis Example
 
 Analysing plain text or markdown files is supported out of the box.
-The snippet below runs a sample chain against markdown files and exports JSONL results.
+The snippet below runs the sample chain against Markdown files and exports JSONL results.
 
 ```bash
-fmf run --chain examples/chains/sample.yaml -c examples/fmf.example.yaml \
-  --set inputs.select="**/*.md"
+fmf run --chain examples/chains/sample.yaml -c examples/fmf.example.yaml
 ```
+
+Note: the sample chain already declares `inputs.select: ["**/*.md"]`. To target other file types, edit `examples/chains/sample.yaml` or your own chain file.
 
 The same can be invoked from Python:
 
