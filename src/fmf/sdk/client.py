@@ -103,11 +103,12 @@ class FMF:
         connector: str | None = None,
         select: List[str] | None = None,
         save_jsonl: str | None = None,
+        expects_json: bool = True,
         return_records: bool = False,
     ) -> Optional[List[Dict[str, Any]]]:
         c = connector or self._auto_connector_name()
         save_jsonl = save_jsonl or "artefacts/${run_id}/text_outputs.jsonl"
-        chain = _build_text_chain(connector=c, select=select, prompt=prompt, save_jsonl=save_jsonl)
+        chain = _build_text_chain(connector=c, select=select, prompt=prompt, save_jsonl=save_jsonl, expects_json=expects_json)
         res = run_chain_config(chain, fmf_config_path=self._config_path or "fmf.yaml")
         if not return_records:
             return None
@@ -167,6 +168,7 @@ class FMF:
                     connector=data.get("connector"),
                     select=data.get("select"),
                     save_jsonl=(data.get("save") or {}).get("jsonl"),
+                    expects_json=bool(data.get("expects_json", True)),
                 )
             }
         if rtype == "images_analyse":
@@ -211,13 +213,16 @@ def _read_jsonl(path: str):
 
 # --- Additional SDK operations ---
 def _build_text_chain(
-    *, connector: str, select: List[str] | None, prompt: str, save_jsonl: str | None
+    *, connector: str, select: List[str] | None, prompt: str, save_jsonl: str | None, expects_json: bool
 ) -> Dict[str, Any]:
+    output_block: Any = "result"
+    if expects_json:
+        output_block = {"name": "result", "expects": "json", "parse_retries": 1}
     return {
         "name": "text-files",
-        "inputs": {"connector": connector, "select": select or ["**/*.md"]},
+        "inputs": {"connector": connector, "select": select or ["**/*.{md,txt,html}"]},
         "steps": [
-            {"id": "s", "prompt": f"inline: {prompt}\n{{{{ text }}}}", "inputs": {"text": "${chunk.text}"}, "output": "result"}
+            {"id": "s", "prompt": f"inline: {prompt}\n{{{{ text }}}}", "inputs": {"text": "${chunk.text}"}, "output": output_block}
         ],
         "outputs": ([{"save": save_jsonl, "from": "result", "as": "jsonl"}] if save_jsonl else []),
     }
