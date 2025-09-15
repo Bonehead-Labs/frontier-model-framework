@@ -158,9 +158,9 @@ V3-M4.5 — Auto Source Resolution
 - [x] Tests: local path covered via default connector selection
 
 V3-M5 — Docs & Examples
-- [ ] README quickstart update: Python SDK and CLI paths
+- [x] README quickstart update: Python SDK and CLI paths
 - [ ] Add examples using SDK for CSV/Text/Images
-- [ ] USAGE: describe zero‑config behaviour and env/provider auto detection
+- [x] USAGE: describe zero‑config behaviour and env/provider auto detection
 
 Non‑Goals (V3)
 - No GUI; no breaking changes to existing YAML chain formats.
@@ -183,8 +183,8 @@ Appendix: Backing Changes Summary
 - New: ChainBuilder and Recipes for priority workflows
 V3-M6 — Quickstart Wizard & Doctor
 - [ ] fmf quickstart wizard (CSV/Text/Images) prints a ready command or Python snippet
-- [ ] fmf doctor validates provider/env and prints inferred defaults
-- [ ] Tests: non‑interactive modes and basic output
+ - [x] fmf doctor validates provider/env and prints inferred defaults
+ - [x] Tests: non‑interactive modes and basic output
 - New: Auto Source Resolution
 - New: Quickstart wizard and Doctor diagnostics
 - Existing: connectors, processing (table_rows), inference, outputs.save/as unchanged — SDK builds on them.

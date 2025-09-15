@@ -100,6 +100,10 @@ CLI export ergonomics
 - Override auto-detection with `--input-format jsonl|csv|parquet`.
 - For S3/Delta sinks, the CLI passes raw bytes through to the exporter.
 
+SDK and CLI convenience
+- Python: `from fmf.sdk import FMF; FMF.from_env("fmf.yaml").csv_analyse(input, text_col, id_col, prompt)`
+- CLI: `fmf csv analyse --input <csv> --text-col <col> --id-col <col> --prompt "..."`
+
 ## Overrides and Profiles
 
 - Quick overrides via environment (double underscores for nesting):

@@ -119,6 +119,10 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--input", required=True, help="Path to input file (e.g., artefacts/<run_id>/outputs.jsonl)")
     export.add_argument("-c", "--config", default="fmf.yaml", help="Path to config YAML")
 
+    # doctor command
+    doctor = subparsers.add_parser("doctor", help="Diagnostics: print inferred provider and connectors")
+    doctor.add_argument("-c", "--config", default="fmf.yaml", help="Path to config YAML")
+
     # SDK wrappers: csv analyse
     csv_cmd = subparsers.add_parser("csv", help="CSV workflows (SDK)")
     csv_sub = csv_cmd.add_subparsers(dest="csv_cmd")
@@ -469,6 +473,21 @@ def main(argv: list[str] | None = None) -> int:
         reg = build_prompt_registry(preg_cfg)
         pv = reg.register(args.ref)
         print(f"registered {pv.id}#{pv.version} hash={pv.content_hash}")
+        return 0
+
+    if args.command == "doctor":
+        # Minimal diagnostics: report provider and first connector
+        cfg = load_config(getattr(args, "config", "fmf.yaml"))
+        prov = None
+        inference_cfg = getattr(cfg, "inference", None) if not isinstance(cfg, dict) else cfg.get("inference")
+        prov = getattr(inference_cfg, "provider", None) if not isinstance(inference_cfg, dict) else (inference_cfg or {}).get("provider")
+        connectors = getattr(cfg, "connectors", None) if not isinstance(cfg, dict) else cfg.get("connectors")
+        first_conn = None
+        if connectors:
+            c = connectors[0]
+            first_conn = (getattr(c, "name", None) if not isinstance(c, dict) else c.get("name"))
+        print(f"provider={prov}")
+        print(f"connector={first_conn}")
         return 0
 
     # Stub handlers: print a friendly message for unimplemented commands

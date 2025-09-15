@@ -49,14 +49,28 @@ uv sync -E aws -E azure     # installs base + selected extras from pyproject
 cp examples/fmf.example.yaml fmf.yaml
 ```
 
-3) Run the processing and sample chain (via uv):
+3) Quickest path — SDK or CLI (no YAML required):
+
+Python SDK
+```
+from fmf.sdk import FMF
+fmf = FMF.from_env("fmf.yaml")
+fmf.csv_analyse(input="./data/comments.csv", text_col="Comment", id_col="ID", prompt="Summarise")
+```
+
+CLI convenience
+```
+uv run fmf csv analyse --input ./data/comments.csv --text-col Comment --id-col ID --prompt "Summarise" -c fmf.yaml
+```
+
+4) Run the processing and sample chain (via uv):
 
 ```
 uv run fmf process --connector local_docs --select "**/*.md" -c fmf.yaml
 uv run fmf run --chain examples/chains/sample.yaml -c fmf.yaml
 ```
 
-4) Review artefacts under `artefacts/<run_id>/` (`docs.jsonl`, `chunks.jsonl`, `outputs.jsonl`, `run.yaml`).
+5) Review artefacts under `artefacts/<run_id>/` (`docs.jsonl`, `chunks.jsonl`, `outputs.jsonl`, `run.yaml`).
 
 CLI Overview
 ------------
