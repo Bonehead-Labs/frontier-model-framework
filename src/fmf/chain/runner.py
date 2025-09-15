@@ -243,8 +243,10 @@ def _run_chain_loaded(chain: ChainConfig, *, fmf_config_path: str) -> Dict[str, 
     documents = []
     chunks = []
     rows: list[dict] = []
+    img_groups: list[list] = []
     input_mode = (chain.inputs or {}).get("mode") if isinstance(chain.inputs, dict) else None
     with trace_span("chain.inputs"):
+        image_docs: list = []
         for ref in conn.list(selector=selector):
             with conn.open(ref, mode="rb") as f:
                 data = f.read()
@@ -271,6 +273,10 @@ def _run_chain_loaded(chain: ChainConfig, *, fmf_config_path: str) -> Dict[str, 
                 # annotate with meta for artefact persistence
                 for i, r in enumerate(rws):
                     rows.append({"__doc_id": doc.id, "__source_uri": ref.uri, "__row_index": i, **r})
+            elif input_mode == "images_group":
+                # Collect image documents to group later
+                if doc.blobs:
+                    image_docs.append(doc)
             else:
                 if doc.text:
                     text_cfg = getattr(processing_cfg, "text", None) if not isinstance(processing_cfg, dict) else (processing_cfg or {}).get("text")
@@ -284,6 +290,19 @@ def _run_chain_loaded(chain: ChainConfig, *, fmf_config_path: str) -> Dict[str, 
                     from ..processing.chunking import estimate_tokens
 
                     chunks.append(Chunk(id=f"{doc.id}_ch0", doc_id=doc.id, text="", tokens_estimate=estimate_tokens("") ))
+
+        # Build image groups if requested
+        if input_mode == "images_group" and image_docs:
+            imgs_cfg = (chain.inputs or {}).get("images", {}) if isinstance(chain.inputs, dict) else {}
+            group_size = int(imgs_cfg.get("group_size", 4) or 4)
+            cur: list = []
+            for d in image_docs:
+                cur.append(d)
+                if len(cur) >= group_size:
+                    img_groups.append(cur)
+                    cur = []
+            if cur:
+                img_groups.append(cur)
 
     # Execute steps
     context_all: Dict[str, List[Any]] = {}
@@ -348,6 +367,53 @@ def _run_chain_loaded(chain: ChainConfig, *, fmf_config_path: str) -> Dict[str, 
             errors = 0
             with ThreadPoolExecutor(max_workers=max(1, int(chain.concurrency))) as ex:
                 futs = {ex.submit(run_one_row, r): r for r in rows}
+                for fut in as_completed(futs):
+                    try:
+                        comp = fut.result()
+                        metrics["tokens_prompt"] += comp.prompt_tokens or 0
+                        metrics["tokens_completion"] += comp.completion_tokens or 0
+                        results.append(comp.text)
+                    except Exception:
+                        errors += 1
+                        if not chain.continue_on_error:
+                            raise
+            context_all[step.output] = results
+        elif input_mode == "images_group":
+            def run_one_group(gdocs: list):
+                # Build a single multimodal message with all images in the group
+                vars_ctx = {
+                    "group": {"size": len(gdocs), "source_uris": [d.source_uri for d in gdocs]},
+                    "all": {k: v for k, v in context_all.items()},
+                }
+                inputs = {k: _interp(v, {**vars_ctx}) for k, v in (step.inputs or {}).items()}
+                body = tmpl
+                for k, v in inputs.items():
+                    body = body.replace("{{ " + k + " }}", str(v))
+                    body = body.replace("${" + k + "}", str(v))
+                parts = [{"type": "text", "text": body}]
+                import base64 as _b64
+                for d in gdocs:
+                    for b in (d.blobs or []):
+                        if b.data is None:
+                            continue
+                        url = f"data:{b.media_type};base64,{_b64.b64encode(b.data).decode('ascii')}"
+                        parts.append({"type": "image_url", "url": url})
+                messages = [Message(role="system", content="You are a helpful assistant."), Message(role="user", content=parts)]
+                params = step.params or {}
+                with trace_span(f"step.{step.id}"):
+                    comp: Completion = client.complete(
+                        messages,
+                        temperature=params.get("temperature"),
+                        max_tokens=params.get("max_tokens"),
+                    )
+                # JSON enforcement fallback handled by step config (if set) in the non-group branch;
+                # for simplicity we return text directly here (enforcement can be enabled in step)
+                return comp
+
+            results = []
+            errors = 0
+            with ThreadPoolExecutor(max_workers=max(1, int(chain.concurrency))) as ex:
+                futs = {ex.submit(run_one_group, g): g for g in img_groups}
                 for fut in as_completed(futs):
                     try:
                         comp = fut.result()

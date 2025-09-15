@@ -123,11 +123,15 @@ class FMF:
         select: List[str] | None = None,
         save_jsonl: str | None = None,
         expects_json: bool = True,
+        group_size: int | None = None,
         return_records: bool = False,
     ) -> Optional[List[Dict[str, Any]]]:
         c = connector or self._auto_connector_name()
         save_jsonl = save_jsonl or "artefacts/${run_id}/image_outputs.jsonl"
-        chain = _build_images_chain(connector=c, select=select, prompt=prompt, save_jsonl=save_jsonl, expects_json=expects_json)
+        if group_size and group_size > 1:
+            chain = _build_images_group_chain(connector=c, select=select, prompt=prompt, save_jsonl=save_jsonl, expects_json=expects_json, group_size=group_size)
+        else:
+            chain = _build_images_chain(connector=c, select=select, prompt=prompt, save_jsonl=save_jsonl, expects_json=expects_json)
         res = run_chain_config(chain, fmf_config_path=self._config_path or "fmf.yaml")
         if not return_records:
             return None
@@ -179,6 +183,7 @@ class FMF:
                     select=data.get("select"),
                     save_jsonl=(data.get("save") or {}).get("jsonl"),
                     expects_json=bool(data.get("expects_json", True)),
+                    group_size=int(data.get("group_size", 0) or 0) or None,
                 )
             }
         raise ValueError(f"Unsupported or missing recipe type: {rtype!r}")
@@ -237,6 +242,22 @@ def _build_images_chain(
     return {
         "name": "images-analyse",
         "inputs": {"connector": connector, "select": select or ["**/*.{png,jpg,jpeg}"]},
+        "steps": [
+            {"id": "vision", "mode": "multimodal", "prompt": f"inline: {prompt}", "inputs": {}, "output": output_block}
+        ],
+        "outputs": ([{"save": save_jsonl, "from": "analysis", "as": "jsonl"}] if save_jsonl else []),
+    }
+
+
+def _build_images_group_chain(
+    *, connector: str, select: List[str] | None, prompt: str, save_jsonl: str | None, expects_json: bool, group_size: int
+) -> Dict[str, Any]:
+    output_block: Any = "analysis"
+    if expects_json:
+        output_block = {"name": "analysis", "expects": "json", "parse_retries": 1}
+    return {
+        "name": "images-analyse-group",
+        "inputs": {"connector": connector, "select": select or ["**/*.{png,jpg,jpeg}"], "mode": "images_group", "images": {"group_size": group_size}},
         "steps": [
             {"id": "vision", "mode": "multimodal", "prompt": f"inline: {prompt}", "inputs": {}, "output": output_block}
         ],
