@@ -1,6 +1,37 @@
 # Per-row Inference Example
 
-This walkthrough shows a simple, pragmatic per-row workflow using FMF’s inference adapter directly in Python. Native row‑mode in the chain runner is planned (see BUILD_TODOS Milestone R2); until then, a small harness like this is the recommended approach.
+This walkthrough shows two ways to do per‑row inference:
+
+1) YAML chain with row‑mode (preferred)
+
+```yaml
+# examples/chains/per_row.yaml
+name: per-row-csv
+inputs:
+  connector: local_docs
+  select: ["**/*.csv"]
+  mode: table_rows
+  table: { text_column: message }
+steps:
+  - id: classify
+    prompt: |
+      inline: Classify sentiment for the following text:
+      {{ text }}
+    inputs: { text: "${row.text}" }
+    output: sentiment
+outputs:
+  - save: artefacts/${run_id}/per_row.jsonl
+    from: sentiment
+    as: jsonl
+```
+
+Run it:
+
+```
+fmf run --chain examples/chains/per_row.yaml -c examples/fmf.example.yaml
+```
+
+2) Lightweight Python harness (direct adapter)
 
 ```python
 import json
@@ -48,4 +79,4 @@ exp.write(records, context={"run_id": "per-row-demo"})
 exp.finalize()
 ```
 
-This pattern enables row-wise analysis today. For a full YAML-driven solution, watch for row‑mode support in the chain runner.
+Both patterns enable row‑wise analysis. The YAML approach is recommended for reproducibility and exports.
