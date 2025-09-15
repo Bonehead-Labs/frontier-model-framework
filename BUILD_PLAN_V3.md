@@ -21,6 +21,24 @@ UX Pillars
 3) Smart defaults + auto‑config: use fmf.yaml if present; otherwise infer provider from env; use local connectors automatically.
 4) Composable under the hood: SDK internally builds a ChainConfig and calls the runner, so power features remain available.
 
+Current Infrastructure Snapshot (for future agentic work)
+- Connectors: local, s3, sharepoint implemented with factories and Pydantic configs.
+- Processing:
+  - Text normalization and chunking (by_sentence/by_paragraph/none) with token estimates.
+  - Table rows: processing.table_rows.iter_table_rows supports CSV/XLSX/Parquet, text_column + pass_through.
+  - Persist artefacts: docs.jsonl, chunks.jsonl, outputs.jsonl, run.yaml (plus rows.jsonl for row‑mode).
+- Inference:
+  - Unified LLM client; Azure OpenAI and AWS Bedrock adapters with retries and rate limiting.
+  - Multimodal parts (text+image) supported; adapters map to provider payloads.
+  - JSON enforcement in chain steps: expects, schema(required), parse_retries with repair.
+- Runner / Chains:
+  - YAML chain loader; programmatic runner currently file‑based (run_chain(path)).
+  - Variable interpolation including ${row.*}, ${chunk.*}, ${all.*}, and ${join(...)} with size limits.
+  - outputs: save/export with as: jsonl/csv/parquet and ${run_id} interpolation.
+- Exporters: s3 (jsonl/csv/parquet), dynamodb; stubs for sharepoint_excel/redshift/delta/fabric.
+- CLI today: keys, connect ls, process, run, infer, export.
+- Tests: broad unit and e2e with DummyClient pattern, patched boto3, etc.
+
 Proposed Components & Changes
 
 1) Programmatic Runner
@@ -48,6 +66,13 @@ Proposed Components & Changes
   - Call run_chain_config; optionally rehydrate outputs.jsonl to return_records.
   - Honour artefacts_dir and export settings from loaded config; SDK saves files via chain outputs to avoid duplicating exporter logic.
 
+2.5) ChainBuilder + Recipes (typed, minimal API)
+- ChainBuilder: small fluent builder that constructs ChainConfig without dicts:
+  - ChainBuilder.csv(input, text_col, id_col).step(prompt, expects_json=True, schema=...).save(csv=..., jsonl=...)
+  - ChainBuilder.text(select).step(...).save(...)
+  - ChainBuilder.images(select).step(...).save(...)
+- Recipes: csv_row_analysis, text_file_summary, image_description call ChainBuilder with best‑practice defaults; SDK methods delegate to recipes.
+
 3) CLI Convenience (wrappers over SDK)
 - fmf csv analyse --input comments.csv --text-col Comment --id-col ID --prompt "Summarise"
 - fmf text infer --select "**/*.md" --prompt "Summarise"
@@ -60,6 +85,18 @@ Notes: These commands only require a connector name when the default local conne
 5) Keep Backwards Compatibility
 - Do not remove run_chain or YAML chains. SDK and CLI wrappers are additive.
 - The chain runner remains the single orchestrator; the SDK builds and forwards.
+
+4.5) Auto Source Resolution
+- Given a path/URL, infer a connector:
+  - local: absolute/relative filesystem paths
+  - s3: s3://bucket/prefix
+  - sharepoint: sharepoint:/sites/... or https URLs where feasible
+- Log decisions and allow explicit override (connector=...).
+- SDK/CLI auto‑wire connector when unambiguous, eliminating extra flags.
+
+6) Quickstart & Diagnostics
+- fmf quickstart: interactive wizard suggesting the right SDK/CLI incantation for CSV/Text/Images; can scaffold a sample chain YAML.
+- fmf doctor: validates provider/env, lists visible connectors and what will be used by default, prints missing credentials.
 
 API Sketches
 
@@ -88,9 +125,14 @@ fmf csv analyse --input ./data/comments.csv --text-col Comment --id-col ID \
 
 Milestones & Tasks (V3)
 
+V3-M0 — DX Charter & Guardrails
+- [ ] Document “zero‑to‑first‑result” scenarios and make SDK/CLI the default entry point in README and AGENTS.md
+- [ ] Add logging conventions for SDK/CLI auto‑detection (provider, connector)
+- [ ] Add “no YAML required” pledge for priority workflows (CSV/Text/Images)
+
 V3-M1 — Programmatic Runner
-- [ ] Add run_chain_config(conf: ChainConfig | dict, *, fmf_config_path: str) -> dict
-- [ ] Unit test: in-memory chain dict + DummyClient → outputs.jsonl exists; metrics present.
+- [x] Add run_chain_config(conf: ChainConfig | dict, *, fmf_config_path: str) -> dict
+- [x] Unit test: in-memory chain dict + DummyClient → outputs.jsonl exists; metrics present.
 
 V3-M2 — SDK Skeleton (csv_analyse)
 - [ ] Add package src/fmf/sdk/__init__.py, client.py implementing FMF.from_env and csv_analyse
@@ -109,6 +151,11 @@ V3-M4 — CLI Wrappers
 - [ ] Add fmf csv analyse subcommand (thin wrapper to FMF.csv_analyse)
 - [ ] Add fmf text infer and fmf images analyse wrappers
 - [ ] Tests: CLI triggers SDK and prints output paths
+
+V3-M4.5 — Auto Source Resolution
+- [ ] Implement source auto‑resolution in SDK (path/URL → connector)
+- [ ] CLI uses SDK auto‑resolution; add flag to override
+- [ ] Tests: local path, s3 URL mapping, ambiguous cases logged
 
 V3-M5 — Docs & Examples
 - [ ] README quickstart update: Python SDK and CLI paths
@@ -133,5 +180,11 @@ Appendix: Backing Changes Summary
 - New: run_chain_config in runner
 - New: fmf.sdk package (FMF facade)
 - New: CLI wrappers for CSV/Text/Images (optional if time‑boxed)
+- New: ChainBuilder and Recipes for priority workflows
+V3-M6 — Quickstart Wizard & Doctor
+- [ ] fmf quickstart wizard (CSV/Text/Images) prints a ready command or Python snippet
+- [ ] fmf doctor validates provider/env and prints inferred defaults
+- [ ] Tests: non‑interactive modes and basic output
+- New: Auto Source Resolution
+- New: Quickstart wizard and Doctor diagnostics
 - Existing: connectors, processing (table_rows), inference, outputs.save/as unchanged — SDK builds on them.
-

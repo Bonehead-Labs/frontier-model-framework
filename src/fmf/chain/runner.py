@@ -159,6 +159,55 @@ def _validate_min_schema(obj: Any, schema: Dict[str, Any] | None) -> Tuple[bool,
 
 def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str, Any]:
     chain = load_chain(chain_path)
+    # Delegate to the core execution with a loaded ChainConfig
+    return _run_chain_loaded(chain, fmf_config_path=fmf_config_path)
+
+
+def run_chain_config(conf: ChainConfig | Dict[str, Any], *, fmf_config_path: str = "fmf.yaml") -> Dict[str, Any]:
+    """Programmatic runner that accepts a ChainConfig or a plain dict.
+
+    For compatibility and to avoid duplicating run logic, this function
+    serializes the chain to a temporary YAML file and reuses run_chain.
+    """
+    import tempfile as _tmp
+    import yaml as _yaml
+
+    # Convert ChainConfig to a dict similar to on-disk YAML
+    if isinstance(conf, ChainConfig):
+        data: Dict[str, Any] = {
+            "name": conf.name,
+            "inputs": conf.inputs,
+            "steps": [],
+            "outputs": conf.outputs,
+            "concurrency": conf.concurrency,
+            "continue_on_error": conf.continue_on_error,
+        }
+        for s in conf.steps:
+            out_val: Any = s.output
+            if s.output_expects or s.output_schema or s.output_parse_retries:
+                out_val = {
+                    "name": s.output,
+                    "expects": s.output_expects,
+                    "schema": s.output_schema,
+                    "parse_retries": s.output_parse_retries,
+                }
+            data["steps"].append({
+                "id": s.id,
+                "prompt": s.prompt,
+                "inputs": s.inputs,
+                "output": out_val,
+                "params": s.params,
+                "mode": s.mode,
+            })
+    else:
+        data = conf  # assume dict
+
+    with _tmp.TemporaryDirectory() as tdir:
+        path = os.path.join(tdir, "chain.yaml")
+        with open(path, "w", encoding="utf-8") as f:
+            _yaml.safe_dump(data, f, sort_keys=False)
+        return run_chain(path, fmf_config_path=fmf_config_path)
+def _run_chain_loaded(chain: ChainConfig, *, fmf_config_path: str) -> Dict[str, Any]:
     cfg = load_config(fmf_config_path)
     # Reset global metrics for a clean run record
     try:
@@ -580,4 +629,4 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
     return {"run_id": run_id, "artefacts": paths, "run_dir": run_dir, "metrics": {**metrics, **_metrics.get_all()}}
 
 
-__all__ = ["run_chain", "load_chain"]
+__all__ = ["run_chain", "run_chain_config", "load_chain"]
