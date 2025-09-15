@@ -29,11 +29,11 @@ These gaps map to the following prioritized milestones and tasks:
 - [x] Docs + example: CSV → per-row JSONL and Parquet export (example provided as JSONL; Parquet can be produced via `as: parquet` when `pyarrow` is installed).
 
 ## Milestone R3 — JSON Output Enforcement
-- [ ] Step-level post-processing config (extend chain schema):
-  - `output: { expects: json, schema: <json-schema>, parse_retries: 1-2 }`.
-- [ ] Implement robust JSON parse/repair with retries; on failure, record `{parse_error, raw_text}` and continue when `continue_on_error` is true.
-- [ ] Track `json_parse_failures` metric and include per-step counts in `run.yaml`.
-- [ ] Docs: schema-based example (e.g., sentiment classification) with failure handling.
+- [x] Step-level post-processing config (extend chain schema):
+  - `output: { name, expects: json, schema: <json-schema>, parse_retries: 1-2 }`.
+- [x] Implement robust JSON parse/repair with retries; on failure, record `{parse_error, raw_text}` and continue when `continue_on_error` is true.
+- [x] Track `json_parse_failures` metric and include per-step counts in `run.yaml` (e.g., `json_parse_failures.s1`).
+- [x] Docs: schema-based example (sentiment classification) with failure handling.
 
 ## Milestone R4 — S3 Export Formats (CSV/Parquet)
 - [ ] Extend `exporters.s3` to honor `format: csv|parquet` and `compression`:

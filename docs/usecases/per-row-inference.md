@@ -18,7 +18,13 @@ steps:
       inline: Classify sentiment for the following text:
       {{ text }}
     inputs: { text: "${row.text}" }
-    output: sentiment
+    output:
+      name: sentiment
+      expects: json
+      parse_retries: 1
+      schema:
+        type: object
+        required: [sentiment, category]
 outputs:
   - save: artefacts/${run_id}/per_row.jsonl
     from: sentiment
