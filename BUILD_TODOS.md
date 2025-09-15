@@ -49,10 +49,10 @@ These gaps map to the following prioritized milestones and tasks:
 - [x] Validate sink config vs. provided input format and fail fast with actionable errors (e.g., Parquet requires `pyarrow`).
 
 ## Milestone R6 — Multimodal Adapters
-- [ ] Expand message model to support content parts (text + image). Keep backward compatibility with `content: str`.
-- [ ] Update Azure OpenAI and Bedrock adapters to construct multimodal payloads (image URLs or inline base64, depending on provider constraints).
-- [ ] Runner: new step `mode: multimodal` that collects images from `Document.blobs` (and optional OCR text) into messages.
-- [ ] Example chain: basic image analysis producing structured JSON; document provider limitations and required extras.
+- [x] Expand message model to support content parts (text + image). Keep backward compatibility with `content: str`.
+- [x] Update Azure OpenAI and Bedrock adapters to construct multimodal payloads (image URLs or inline base64, depending on provider constraints).
+- [x] Runner: new step `mode: multimodal` that collects images from `Document.blobs` (and optional OCR text) into messages.
+- [x] Example chain: basic image analysis producing structured JSON; document provider limitations and required extras.
 
 ## Milestone R7 — Interpolation & Aggregation Quality
 - [ ] Implement `${all.*}` flattening and simple joins (e.g., `${join(all.chunk_summary, "\n")}`) to improve aggregation prompts.
