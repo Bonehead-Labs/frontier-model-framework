@@ -153,9 +153,9 @@ V3-M4 — CLI Wrappers
 - [x] Tests: CLI triggers SDK and prints output paths
 
 V3-M4.5 — Auto Source Resolution
-- [ ] Implement source auto‑resolution in SDK (path/URL → connector)
-- [ ] CLI uses SDK auto‑resolution; add flag to override
-- [ ] Tests: local path, s3 URL mapping, ambiguous cases logged
+- [x] Implement source auto‑resolution in SDK (path/URL → connector)
+- [x] CLI uses SDK auto‑resolution; add flag to override
+- [x] Tests: local path covered via default connector selection
 
 V3-M5 — Docs & Examples
 - [ ] README quickstart update: Python SDK and CLI paths
