@@ -178,6 +178,48 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
                 }
                 f.write(json.dumps(rec) + "\n")
 
+    # Helpers for output serialization
+    def _serialize_jsonl(values: List[Any]) -> bytes:
+        buf = []
+        for i, v in enumerate(values):
+            rec = {"run_id": run_id, "record_id": i, "output": v}
+            buf.append(json.dumps(rec))
+        return ("\n".join(buf) + ("\n" if buf else "")).encode("utf-8")
+
+    def _serialize(values: List[Any], as_fmt: str | None) -> bytes:
+        fmt = (as_fmt or "jsonl").lower()
+        if fmt == "jsonl":
+            return _serialize_jsonl(values)
+        # CSV/Parquet handled in later milestone tasks; default to JSONL for now
+        return _serialize_jsonl(values)
+
+    # Process 'save' outputs before composing run.yaml
+    saved_paths: list[str] = []
+    if chain.outputs:
+        for out in chain.outputs:
+            if not isinstance(out, dict):
+                continue
+            save_to = out.get("save")
+            if not save_to:
+                continue
+            from_key = out.get("from") or (list(context_all.keys())[-1] if context_all else None)
+            if not from_key or from_key not in context_all:
+                if not chain.continue_on_error:
+                    raise RuntimeError(f"outputs.from references unknown key: {from_key!r}")
+                else:
+                    continue
+            values = context_all[from_key]
+            path = save_to.replace("${run_id}", run_id)
+            try:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                payload = _serialize(values, out.get("as"))
+                with open(path, "wb") as f:
+                    f.write(payload)
+                saved_paths.append(path)
+            except Exception:
+                if not chain.continue_on_error:
+                    raise
+
     # metrics
     _metrics.set_value("docs", len(documents))
     _metrics.set_value("chunks", len(chunks))
@@ -200,7 +242,7 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
             "name": getattr(inference_cfg, "provider", None) if not isinstance(inference_cfg, dict) else inference_cfg.get("provider"),
         },
         "metrics": {**metrics, **_metrics.get_all(), "cost_estimate_usd": cost},
-        "artefacts": [paths["docs"], paths["chunks"], outputs_file],
+        "artefacts": [paths["docs"], paths["chunks"], outputs_file, *saved_paths],
     }
     run_yaml_path = os.path.join(run_dir, "run.yaml")
     with open(run_yaml_path, "w", encoding="utf-8") as f:
@@ -211,17 +253,6 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
     # Optional exports configured in chain outputs
     export_cfg = getattr(cfg, "export", None) if not isinstance(cfg, dict) else cfg.get("export")
     sinks = getattr(export_cfg, "sinks", None) if not isinstance(export_cfg, dict) else (export_cfg or {}).get("sinks")
-
-    def _serialize_jsonl(values: List[Any]) -> bytes:
-        buf = []
-        for i, v in enumerate(values):
-            rec = {
-                "run_id": run_id,
-                "record_id": i,
-                "output": v,
-            }
-            buf.append(json.dumps(rec))
-        return ("\n".join(buf) + ("\n" if buf else "")).encode("utf-8")
 
     if chain.outputs and sinks:
         for out in chain.outputs:
@@ -238,7 +269,7 @@ def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str
                 else:
                     continue
             values = context_all[from_key]
-            payload = _serialize_jsonl(values)
+            payload = _serialize(values, out.get("as"))
             sink_cfg = next((s for s in sinks if (getattr(s, "name", None) if not isinstance(s, dict) else s.get("name")) == sink_name), None)
             if not sink_cfg:
                 continue
