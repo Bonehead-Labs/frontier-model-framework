@@ -126,9 +126,9 @@ fmf csv analyse --input ./data/comments.csv --text-col Comment --id-col ID \
 Milestones & Tasks (V3)
 
 V3-M0 — DX Charter & Guardrails
-- [ ] Document “zero‑to‑first‑result” scenarios and make SDK/CLI the default entry point in README and AGENTS.md
+- [x] Document “zero‑to‑first‑result” scenarios and make SDK/CLI the default entry point in README and AGENTS.md
 - [ ] Add logging conventions for SDK/CLI auto‑detection (provider, connector)
-- [ ] Add “no YAML required” pledge for priority workflows (CSV/Text/Images)
+- [x] Add “no YAML required” pledge for priority workflows (CSV/Text/Images)
 
 V3-M1 — Programmatic Runner
 - [x] Add run_chain_config(conf: ChainConfig | dict, *, fmf_config_path: str) -> dict
