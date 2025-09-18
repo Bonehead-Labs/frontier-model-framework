@@ -11,7 +11,7 @@ from ..connectors import build_connector
 from ..processing.loaders import load_document_from_bytes
 from ..processing.table_rows import iter_table_rows
 from ..processing.chunking import chunk_text
-from ..types import Chunk
+from ..types import Chunk, Document
 from ..processing.persist import persist_artefacts, ensure_dir
 from ..inference.unified import build_llm_client
 from ..inference.base_client import Message, Completion
@@ -22,20 +22,6 @@ from ..observability.tracing import trace_span
 from ..prompts.registry import build_prompt_registry
 from ..rag import build_rag_pipelines
 from .loader import ChainConfig, ChainStep, load_chain
-
-
-def _render_template(template: str, variables: Dict[str, Any]) -> str:
-    out = template
-    for k, v in variables.items():
-        if isinstance(v, (dict, list)):
-            continue
-        out = out.replace("${" + k + "}", str(v))
-    # support ${all.*} flattened lists
-    if "${all." in out:
-        # Replace occurrences by joined string
-        for key, val in variables.items():
-            pass
-    return out
 
 
 def _limit_joined(text: str) -> str:
@@ -331,7 +317,8 @@ def _run_chain_loaded(chain: ChainConfig, *, fmf_config_path: str) -> Dict[str, 
     rag_records: Dict[str, list[dict]] = {name: [] for name in rag_pipelines}
 
     # Process inputs: chunks (default) or table rows
-    documents = []
+    documents: List[Document] = []
+    doc_lookup: Dict[str, Document] = {}
     chunks = []
     rows: list[dict] = []
     img_groups: list[list] = []
@@ -343,6 +330,7 @@ def _run_chain_loaded(chain: ChainConfig, *, fmf_config_path: str) -> Dict[str, 
                 data = f.read()
             doc = load_document_from_bytes(source_uri=ref.uri, filename=ref.name, data=data, processing_cfg=processing_cfg)
             documents.append(doc)
+            doc_lookup[doc.id] = doc
             if input_mode == "table_rows":
                 table_cfg = (chain.inputs or {}).get("table", {}) if isinstance(chain.inputs, dict) else {}
                 text_col = table_cfg.get("text_column")
@@ -406,10 +394,16 @@ def _run_chain_loaded(chain: ChainConfig, *, fmf_config_path: str) -> Dict[str, 
 
         if input_mode == "table_rows":
             def run_one_row(r):
+                doc = None
+                doc_id = r.get("__doc_id")
+                if isinstance(doc_id, str):
+                    doc = doc_lookup.get(doc_id)
                 vars_ctx = {
                     "row": {k: v for k, v in r.items() if not k.startswith("__")},
                     "all": {k: v for k, v in context_all.items()},
                 }
+                if doc is not None:
+                    vars_ctx["document"] = doc
                 inputs = {k: _interp(v, {**vars_ctx}) for k, v in (step.inputs or {}).items()}
                 ctx = {**vars_ctx, "inputs": inputs}
                 extra_inputs, rag_text_block, rag_images = _prepare_rag_context(
@@ -548,7 +542,7 @@ def _run_chain_loaded(chain: ChainConfig, *, fmf_config_path: str) -> Dict[str, 
             context_all[step.output] = results
         else:
             def run_one(ck):
-                doc = next((d for d in documents if d.id == ck.doc_id), None)
+                doc = doc_lookup.get(ck.doc_id)
                 vars_ctx = {
                     "chunk": {"text": ck.text, "source_uri": doc.source_uri if doc else ""},
                     "all": {k: v for k, v in context_all.items()},
