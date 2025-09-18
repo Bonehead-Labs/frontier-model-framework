@@ -20,6 +20,7 @@ from ..exporters import build_exporter
 from ..observability import metrics as _metrics
 from ..observability.tracing import trace_span
 from ..prompts.registry import build_prompt_registry
+from ..rag import build_rag_pipelines
 from .loader import ChainConfig, ChainStep, load_chain
 
 
@@ -101,6 +102,92 @@ def _interp(value: Any, context: Dict[str, Any]) -> Any:
             return _join_values(cur)
         return cur
     return value
+
+
+def _default_rag_query(ctx: Dict[str, Any]) -> str:
+    chunk = ctx.get("chunk")
+    if isinstance(chunk, dict):
+        for key in ("text", "source_uri"):
+            val = chunk.get(key)
+            if isinstance(val, str) and val.strip():
+                return val
+    row = ctx.get("row")
+    if isinstance(row, dict):
+        if isinstance(row.get("text"), str) and row["text"].strip():
+            return row["text"]
+        joined = " ".join(str(v) for v in row.values() if isinstance(v, str))
+        if joined.strip():
+            return joined
+    group = ctx.get("group")
+    if isinstance(group, dict):
+        names = group.get("source_uris")
+        if isinstance(names, list) and names:
+            return " ".join(map(str, names))
+    return ""
+
+
+def _prepare_rag_context(
+    rag_cfg: Dict[str, Any] | None,
+    *,
+    pipelines: Dict[str, Any],
+    records: Dict[str, list[dict]],
+    ctx: Dict[str, Any],
+) -> tuple[Dict[str, Any], str, list[dict]]:
+    if not rag_cfg:
+        return {}, "", []
+    pipeline_name = rag_cfg.get("pipeline")
+    if not pipeline_name:
+        return {}, "", []
+    pipeline = pipelines.get(pipeline_name)
+    if pipeline is None:
+        raise RuntimeError(f"RAG pipeline {pipeline_name!r} is not configured")
+
+    query_expr = rag_cfg.get("query")
+    if query_expr:
+        query_raw = _interp(query_expr, ctx)
+    else:
+        query_raw = _default_rag_query(ctx)
+    if query_raw is None:
+        return {}, "", []
+    query_text = str(query_raw).strip()
+    if not query_text:
+        return {}, "", []
+
+    top_k_text = int(rag_cfg.get("top_k_text", 3) or 0)
+    top_k_images = int(rag_cfg.get("top_k_images", 0) or 0)
+    result = pipeline.retrieve(query_text, top_k_text=top_k_text, top_k_images=top_k_images)
+
+    record = result.to_record()
+    record["pipeline"] = pipeline_name
+    records.setdefault(pipeline_name, []).append(record)
+
+    extra_inputs: Dict[str, Any] = {}
+    text_block = ""
+    if result.texts:
+        formatted = pipeline.format_text_block(result.texts)
+        text_var = rag_cfg.get("text_var", "rag_text")
+        if text_var:
+            extra_inputs[text_var] = formatted
+        if rag_cfg.get("inject_prompt", True):
+            text_block = "\n\nRetrieved context:\n" + formatted
+
+    images_payload: list[dict] = []
+    if result.images:
+        urls = pipeline.image_data_urls(result.images)
+        for item, url in zip(result.images, urls):
+            images_payload.append(
+                {
+                    "data_url": url,
+                    "source_uri": item.source_uri,
+                    "media_type": item.media_type,
+                    "metadata": item.metadata,
+                }
+            )
+        image_var = rag_cfg.get("image_var", "rag_images")
+        if image_var:
+            extra_inputs[image_var] = images_payload
+
+    return extra_inputs, text_block, images_payload
 
 
 def _load_prompt_text(ref: str, *, registry) -> Tuple[str, Dict[str, str]]:
@@ -239,6 +326,10 @@ def _run_chain_loaded(chain: ChainConfig, *, fmf_config_path: str) -> Dict[str, 
     registry = build_prompt_registry(preg_cfg)
     client = build_llm_client(inference_cfg)
 
+    rag_cfg = getattr(cfg, "rag", None) if not isinstance(cfg, dict) else cfg.get("rag")
+    rag_pipelines = build_rag_pipelines(rag_cfg, connectors=connectors, processing_cfg=processing_cfg)
+    rag_records: Dict[str, list[dict]] = {name: [] for name in rag_pipelines}
+
     # Process inputs: chunks (default) or table rows
     documents = []
     chunks = []
@@ -320,10 +411,26 @@ def _run_chain_loaded(chain: ChainConfig, *, fmf_config_path: str) -> Dict[str, 
                     "all": {k: v for k, v in context_all.items()},
                 }
                 inputs = {k: _interp(v, {**vars_ctx}) for k, v in (step.inputs or {}).items()}
+                ctx = {**vars_ctx, "inputs": inputs}
+                extra_inputs, rag_text_block, rag_images = _prepare_rag_context(
+                    step.rag,
+                    pipelines=rag_pipelines,
+                    records=rag_records,
+                    ctx=ctx,
+                )
+                inputs.update(extra_inputs)
                 body = tmpl
                 for k, v in inputs.items():
                     body = body.replace("{{ " + k + " }}", str(v))
                     body = body.replace("${" + k + "}", str(v))
+                if rag_text_block:
+                    body += rag_text_block
+                if rag_images and (step.mode or "").lower() != "multimodal":
+                    refs = "\n".join(
+                        f"[{idx}] {img.get('source_uri', '')}" for idx, img in enumerate(rag_images, start=1)
+                    )
+                    if refs:
+                        body += "\n\nRetrieved images:\n" + refs
                 messages = [Message(role="system", content="You are a helpful assistant."), Message(role="user", content=body)]
                 params = step.params or {}
                 with trace_span(f"step.{step.id}"):
@@ -386,10 +493,20 @@ def _run_chain_loaded(chain: ChainConfig, *, fmf_config_path: str) -> Dict[str, 
                     "all": {k: v for k, v in context_all.items()},
                 }
                 inputs = {k: _interp(v, {**vars_ctx}) for k, v in (step.inputs or {}).items()}
+                ctx = {**vars_ctx, "inputs": inputs}
+                extra_inputs, rag_text_block, rag_images = _prepare_rag_context(
+                    step.rag,
+                    pipelines=rag_pipelines,
+                    records=rag_records,
+                    ctx=ctx,
+                )
+                inputs.update(extra_inputs)
                 body = tmpl
                 for k, v in inputs.items():
                     body = body.replace("{{ " + k + " }}", str(v))
                     body = body.replace("${" + k + "}", str(v))
+                if rag_text_block:
+                    body += rag_text_block
                 parts = [{"type": "text", "text": body}]
                 import base64 as _b64
                 for d in gdocs:
@@ -397,6 +514,10 @@ def _run_chain_loaded(chain: ChainConfig, *, fmf_config_path: str) -> Dict[str, 
                         if b.data is None:
                             continue
                         url = f"data:{b.media_type};base64,{_b64.b64encode(b.data).decode('ascii')}"
+                        parts.append({"type": "image_url", "url": url})
+                for img in rag_images:
+                    url = img.get("data_url")
+                    if url:
                         parts.append({"type": "image_url", "url": url})
                 messages = [Message(role="system", content="You are a helpful assistant."), Message(role="user", content=parts)]
                 params = step.params or {}
@@ -427,21 +548,33 @@ def _run_chain_loaded(chain: ChainConfig, *, fmf_config_path: str) -> Dict[str, 
             context_all[step.output] = results
         else:
             def run_one(ck):
+                doc = next((d for d in documents if d.id == ck.doc_id), None)
                 vars_ctx = {
-                    "chunk": {"text": ck.text, "source_uri": next((d.source_uri for d in documents if d.id == ck.doc_id), "")},
+                    "chunk": {"text": ck.text, "source_uri": doc.source_uri if doc else ""},
                     "all": {k: v for k, v in context_all.items()},
                 }
+                if doc is not None:
+                    vars_ctx["document"] = doc.to_serializable()
                 # Interpolate inputs into a dict for template context
                 inputs = {k: _interp(v, {**vars_ctx}) for k, v in (step.inputs or {}).items()}
+                ctx = {**vars_ctx, "inputs": inputs}
+                extra_inputs, rag_text_block, rag_images = _prepare_rag_context(
+                    step.rag,
+                    pipelines=rag_pipelines,
+                    records=rag_records,
+                    ctx=ctx,
+                )
+                inputs.update(extra_inputs)
                 # Merge into template: allow {{ var }} style via simple replace of ${var}
                 # Build a user message combining template and rendered inputs
                 body = tmpl
                 for k, v in inputs.items():
                     body = body.replace("{{ " + k + " }}", str(v))
                     body = body.replace("${" + k + "}", str(v))
+                if rag_text_block:
+                    body += rag_text_block
                 if (step.mode or "").lower() == "multimodal":
                     # Gather image blobs for this doc and build content parts
-                    doc = next((d for d in documents if d.id == ck.doc_id), None)
                     parts = [{"type": "text", "text": body}]
                     if doc and doc.blobs:
                         import base64 as _b64
@@ -451,8 +584,18 @@ def _run_chain_loaded(chain: ChainConfig, *, fmf_config_path: str) -> Dict[str, 
                                 continue
                             url = f"data:{b.media_type};base64,{_b64.b64encode(b.data).decode('ascii')}"
                             parts.append({"type": "image_url", "url": url})
+                    for img in rag_images:
+                        url = img.get("data_url")
+                        if url:
+                            parts.append({"type": "image_url", "url": url})
                     messages = [Message(role="system", content="You are a helpful assistant."), Message(role="user", content=parts)]
                 else:
+                    if rag_images:
+                        refs = "\n".join(
+                            f"[{idx}] {img.get('source_uri', '')}" for idx, img in enumerate(rag_images, start=1)
+                        )
+                        if refs:
+                            body += "\n\nRetrieved images:\n" + refs
                     messages = [Message(role="system", content="You are a helpful assistant."), Message(role="user", content=body)]
                 params = step.params or {}
                 with trace_span(f"step.{step.id}"):
@@ -603,6 +746,19 @@ def _run_chain_loaded(chain: ChainConfig, *, fmf_config_path: str) -> Dict[str, 
                 if not chain.continue_on_error:
                     raise
 
+    rag_paths: list[str] = []
+    if rag_records:
+        rag_dir = os.path.join(run_dir, "rag")
+        ensure_dir(rag_dir)
+        for pname, entries in rag_records.items():
+            if not entries:
+                continue
+            path = os.path.join(rag_dir, f"{pname}.jsonl")
+            with open(path, "w", encoding="utf-8") as f:
+                for rec in entries:
+                    f.write(json.dumps(rec) + "\n")
+            rag_paths.append(path)
+
     # metrics
     _metrics.set_value("docs", len(documents))
     _metrics.set_value("chunks", len(chunks))
@@ -620,6 +776,7 @@ def _run_chain_loaded(chain: ChainConfig, *, fmf_config_path: str) -> Dict[str, 
     if rows_file:
         artefacts_list.append(rows_file)
     artefacts_list.extend(saved_paths)
+    artefacts_list.extend(rag_paths)
 
     run_yaml = {
         "run_id": run_id,

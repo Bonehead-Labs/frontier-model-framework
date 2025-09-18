@@ -18,6 +18,7 @@ class ChainStep:
     output_expects: Optional[str] = None  # 'json' | None
     output_schema: Optional[Dict[str, Any]] = None
     output_parse_retries: int = 0
+    rag: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -63,6 +64,7 @@ def load_chain(path: str) -> ChainConfig:
                 output_expects=output_expects,
                 output_schema=output_schema,
                 output_parse_retries=output_parse_retries,
+                rag=s.get("rag"),
             )
         )
     outputs = data.get("outputs")
