@@ -246,6 +246,24 @@ class RunInputs(BaseModel):
     select: List[str] | None = None
 
 
+# RAG pipelines
+class RagPipelineConfig(BaseModel):
+    name: str
+    connector: str
+    select: Optional[List[str]] = None
+    modalities: List[Literal["text", "image", "both"]] = Field(default_factory=lambda: ["text"])
+    max_text_items: Optional[int] = None
+    max_image_items: Optional[int] = None
+
+    model_config = _ConfigDict(extra="allow")
+
+
+class RagConfig(BaseModel):
+    pipelines: List[RagPipelineConfig] = Field(default_factory=list)
+
+    model_config = _ConfigDict(extra="allow")
+
+
 class RunConfig(BaseModel):
     chain_config: Optional[str] = None
     inputs: Optional[RunInputs] = None
@@ -263,6 +281,7 @@ class FmfConfig(BaseModel):
     export: Optional[ExportConfig] = None
     prompt_registry: Optional[PromptRegistryConfig] = None
     run: Optional[RunConfig] = None
+    rag: Optional[RagConfig] = None
 
     # allow extra to keep forward-compatible
     model_config = _ConfigDict(extra="allow")
@@ -283,5 +302,6 @@ __all__ = [
     "PromptRegistryConfig",
     "ExportConfig",
     "RunConfig",
+    "RagConfig",
+    "RagPipelineConfig",
 ]
-
