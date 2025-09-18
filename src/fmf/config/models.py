@@ -254,6 +254,7 @@ class RagPipelineConfig(BaseModel):
     modalities: List[Literal["text", "image", "both"]] = Field(default_factory=lambda: ["text"])
     max_text_items: Optional[int] = None
     max_image_items: Optional[int] = None
+    build_concurrency: Optional[int] = None
 
     model_config = _ConfigDict(extra="allow")
 

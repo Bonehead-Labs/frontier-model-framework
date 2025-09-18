@@ -42,6 +42,7 @@ class TestRagPipeline(unittest.TestCase):
                     "name": "kb",
                     "connector": "local_kb",
                     "modalities": ["text", "image"],
+                    "build_concurrency": 2,
                 }
             ]
         }
@@ -65,4 +66,3 @@ class TestRagPipeline(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

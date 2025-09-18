@@ -4,8 +4,9 @@ import math
 import os
 import re
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from ..connectors import build_connector
 from ..processing.chunking import chunk_text
@@ -180,7 +181,6 @@ def _build_single_pipeline(entry, connector_cfg, processing_cfg) -> RagPipeline:
     max_image_items = _cfg_get(entry, "max_image_items")
     select = _cfg_get(entry, "select")
 
-    connector = build_connector(connector_cfg)
     text_items: List[RagTextItem] = []
     image_items: List[RagImageItem] = []
 
@@ -193,10 +193,13 @@ def _build_single_pipeline(entry, connector_cfg, processing_cfg) -> RagPipeline:
     include_text = "text" in modalities or "both" in modalities
     include_images = "image" in modalities or "both" in modalities
 
-    count_text = 0
-    count_images = 0
-    for ref in connector.list(selector=select):
-        with connector.open(ref, mode="rb") as fh:
+    base_connector = build_connector(connector_cfg)
+    refs = list(base_connector.list(selector=select))
+
+    def _process_reference(conn, ref) -> Tuple[List[RagTextItem], List[RagImageItem]]:
+        local_texts: List[RagTextItem] = []
+        local_images: List[RagImageItem] = []
+        with conn.open(ref, mode="rb") as fh:
             data = fh.read()
         doc = load_document_from_bytes(
             source_uri=ref.uri,
@@ -207,11 +210,9 @@ def _build_single_pipeline(entry, connector_cfg, processing_cfg) -> RagPipeline:
         if include_text and doc.text:
             text_chunks = _doc_to_chunks(doc, max_tokens=max_tokens, overlap=overlap, splitter=splitter)
             for chunk in text_chunks:
-                if max_text_items is not None and count_text >= max_text_items:
-                    break
                 tokens = _tokenize(chunk.text)
                 metadata = {**doc.metadata, "doc_id": doc.id, "source_uri": doc.source_uri}
-                text_items.append(
+                local_texts.append(
                     RagTextItem(
                         id=chunk.id,
                         source_uri=doc.source_uri,
@@ -220,14 +221,11 @@ def _build_single_pipeline(entry, connector_cfg, processing_cfg) -> RagPipeline:
                         metadata=metadata,
                     )
                 )
-                count_text += 1
         if include_images and doc.blobs:
             for blob in doc.blobs:
-                if max_image_items is not None and count_images >= max_image_items:
-                    break
                 text_repr = doc.text or doc.metadata.get("filename") or blob.id
                 tokens = _tokenize(text_repr)
-                image_items.append(
+                local_images.append(
                     RagImageItem(
                         id=f"{doc.id}:{blob.id}",
                         source_uri=doc.source_uri,
@@ -237,7 +235,56 @@ def _build_single_pipeline(entry, connector_cfg, processing_cfg) -> RagPipeline:
                         metadata={**doc.metadata, "doc_id": doc.id, "blob_id": blob.id},
                     )
                 )
-                count_images += 1
+        return local_texts, local_images
+
+    def _extend_results(local_texts: List[RagTextItem], local_images: List[RagImageItem]) -> None:
+        if local_texts:
+            for item in local_texts:
+                if max_text_items is not None and len(text_items) >= max_text_items:
+                    break
+                text_items.append(item)
+        if local_images:
+            for item in local_images:
+                if max_image_items is not None and len(image_items) >= max_image_items:
+                    break
+                image_items.append(item)
+
+    def _limits_reached() -> bool:
+        text_done = (not include_text) or (
+            max_text_items is not None and len(text_items) >= max_text_items
+        )
+        image_done = (not include_images) or (
+            max_image_items is not None and len(image_items) >= max_image_items
+        )
+        return text_done and image_done
+
+    concurrency_cfg = _cfg_get(entry, "build_concurrency")
+    if concurrency_cfg is None:
+        concurrency_cfg = os.getenv("FMF_RAG_BUILD_CONCURRENCY")
+    try:
+        concurrency = int(concurrency_cfg) if concurrency_cfg is not None else 1
+    except ValueError:
+        concurrency = 1
+    concurrency = max(1, concurrency)
+
+    use_parallel = concurrency > 1 and len(refs) > 1
+
+    if not use_parallel:
+        for ref in refs:
+            local_texts, local_images = _process_reference(base_connector, ref)
+            _extend_results(local_texts, local_images)
+            if _limits_reached():
+                break
+    else:
+        def worker(reference):
+            conn = build_connector(connector_cfg)
+            return _process_reference(conn, reference)
+
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            for local_texts, local_images in executor.map(worker, refs):
+                _extend_results(local_texts, local_images)
+                if _limits_reached():
+                    break
     return RagPipeline(name=name, text_items=text_items, image_items=image_items)
 
 
@@ -251,4 +298,3 @@ def _doc_to_chunks(
     if not doc.text:
         return []
     return chunk_text(doc_id=doc.id, text=doc.text, max_tokens=max_tokens, overlap=overlap, splitter=splitter)
-

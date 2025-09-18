@@ -27,6 +27,7 @@ rag:
       select: ["**/*.{png,jpg,jpeg}"]
       modalities: ["image"]
       max_image_items: 10
+      build_concurrency: 4
 
 inference:
   provider: azure_openai

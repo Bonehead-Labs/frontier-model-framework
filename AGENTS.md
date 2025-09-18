@@ -240,9 +240,11 @@ rag:
       modalities: ["image", "text"]
       max_text_items: 8
       max_image_items: 12
+      build_concurrency: 4  # optional; defaults to 1
 ```
 
 - `modalities` controls whether text chunks, images, or both are indexed. Limits (`max_*`) keep pre-built indices manageable for large corpora.
+- `build_concurrency` lets you parallelise ingest when connectors support it. Set `FMF_RAG_BUILD_CONCURRENCY` to override globally.
 - Pipelines persist retrieved queries and matches to `artefacts/<run_id>/rag/<pipeline>.jsonl` for auditability.
 - Steps opt-in to retrieval by adding a `rag` block. Retrieved text is injected into the prompt (unless `inject_prompt` is `false`) and image matches are attached automatically for multimodal calls.
 
