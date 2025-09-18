@@ -228,6 +228,43 @@ run:
 
 Environment variable nesting uses double underscores for path separators.
 
+### RAG Pipelines
+- Define retrieval indexes that reuse existing connectors and processing settings. Pipelines are configured under a top-level `rag.pipelines` list in `fmf.yaml`.
+
+```yaml
+rag:
+  pipelines:
+    - name: sample_images
+      connector: local_docs
+      select: ["**/*.{png,jpg,jpeg}"]
+      modalities: ["image", "text"]
+      max_text_items: 8
+      max_image_items: 12
+```
+
+- `modalities` controls whether text chunks, images, or both are indexed. Limits (`max_*`) keep pre-built indices manageable for large corpora.
+- Pipelines persist retrieved queries and matches to `artefacts/<run_id>/rag/<pipeline>.jsonl` for auditability.
+- Steps opt-in to retrieval by adding a `rag` block. Retrieved text is injected into the prompt (unless `inject_prompt` is `false`) and image matches are attached automatically for multimodal calls.
+
+```yaml
+steps:
+  - id: analyse
+    mode: multimodal
+    prompt: "inline: Describe the item using retrieved context\n{{ rag_context }}"
+    inputs:
+      focus: "${chunk.source_uri}"
+    output: report
+    rag:
+      pipeline: sample_images
+      query: "${document.metadata.filename}"
+      top_k_text: 2
+      top_k_images: 2
+      text_var: rag_context
+      image_var: rag_samples
+```
+
+- At runtime, the runner records retrieved samples, appends a "Retrieved context" section to the user message, and injects image data URLs alongside the primary artefact when `mode: multimodal` is used.
+
 ---
 
 # Data Connection Layer
