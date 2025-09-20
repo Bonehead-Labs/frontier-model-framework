@@ -69,10 +69,7 @@ uv sync -E azure -E delta
 
 Execute the helper script (optional flags shown):
 ```bash
-python scripts/fabric_comments.py \
-  --recipe examples/recipes/fabric_comments.yaml \
-  --enable-rag \  # only if you later add a rag: block to the recipe
-  -c fmf.yaml
+python scripts/fabric_comments.py -c fmf.yaml --json
 ```
 
 Results:

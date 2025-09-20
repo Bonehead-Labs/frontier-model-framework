@@ -44,14 +44,22 @@ class ExampleFixtureTests(unittest.TestCase):
         self.assertEqual(response.text, "ok")
         self.assertEqual(response.model, "mock")
 
-    def test_example_recipe_modules_importable(self) -> None:
-        from examples.recipes import csv_quickstart, multimodal_walkthrough
+    def test_example_recipe_manifests_valid(self) -> None:
+        import yaml
 
-        csv_plan = csv_quickstart.build_recipe("tests/fixtures/csv/sample_comments.csv", "Summarise")
-        self.assertEqual(csv_plan["prompt"], "Summarise")
-
-        mm_plan = multimodal_walkthrough.build_recipe()
-        self.assertIn("**/*.{png,jpg,jpeg}", mm_plan["select"])
+        recipes = [
+            "csv_analyse.yaml",
+            "fabric_comments.yaml",
+            "images_multi.yaml",
+            "text_to_json.yaml",
+        ]
+        base = REPO_ROOT / "examples" / "recipes"
+        for name in recipes:
+            path = base / name
+            self.assertTrue(path.exists(), f"Missing recipe: {name}")
+            data = yaml.safe_load(path.read_text())
+            self.assertIsInstance(data, dict)
+            self.assertTrue(data.get("recipe"))
 
 
 class _DummyProvider(BaseProvider):
