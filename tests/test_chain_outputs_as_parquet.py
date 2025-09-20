@@ -66,12 +66,19 @@ class TestChainOutputsAsParquet(unittest.TestCase):
         runner_mod.build_llm_client = lambda cfg: DummyClient()  # type: ignore
         from fmf.chain.runner import run_chain
 
-        with self.assertRaises(RuntimeError):
-            run_chain(chain_path, fmf_config_path=cfg_path)
+        import importlib.util
+
+        has_pyarrow = importlib.util.find_spec("pyarrow") is not None
+        if has_pyarrow:
+            res = run_chain(chain_path, fmf_config_path=cfg_path)
+            out_dir = os.path.join(root, "out", res["run_id"])
+            self.assertTrue(os.path.exists(out_dir))
+        else:
+            with self.assertRaises(RuntimeError):
+                run_chain(chain_path, fmf_config_path=cfg_path)
 
         dtemp.cleanup()
 
 
 if __name__ == "__main__":
     unittest.main()
-

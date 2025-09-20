@@ -1,0 +1,3 @@
+Frontier Model Framework sample note.
+- Source: fixtures
+- Purpose: smoke tests demonstrate loader entry points.

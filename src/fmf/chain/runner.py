@@ -230,13 +230,27 @@ def _validate_min_schema(obj: Any, schema: Dict[str, Any] | None) -> Tuple[bool,
     return True, None
 
 
-def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str, Any]:
+def run_chain(
+    chain_path: str,
+    *,
+    fmf_config_path: str = "fmf.yaml",
+    set_overrides: list[str] | None = None,
+) -> Dict[str, Any]:
     chain = load_chain(chain_path)
     # Delegate to the core execution with a loaded ChainConfig
-    return _run_chain_loaded(chain, fmf_config_path=fmf_config_path)
+    return _run_chain_loaded(
+        chain,
+        fmf_config_path=fmf_config_path,
+        set_overrides=set_overrides,
+    )
 
 
-def run_chain_config(conf: ChainConfig | Dict[str, Any], *, fmf_config_path: str = "fmf.yaml") -> Dict[str, Any]:
+def run_chain_config(
+    conf: ChainConfig | Dict[str, Any],
+    *,
+    fmf_config_path: str = "fmf.yaml",
+    set_overrides: list[str] | None = None,
+) -> Dict[str, Any]:
     """Programmatic runner that accepts a ChainConfig or a plain dict.
 
     For compatibility and to avoid duplicating run logic, this function
@@ -279,9 +293,14 @@ def run_chain_config(conf: ChainConfig | Dict[str, Any], *, fmf_config_path: str
         path = os.path.join(tdir, "chain.yaml")
         with open(path, "w", encoding="utf-8") as f:
             _yaml.safe_dump(data, f, sort_keys=False)
-        return run_chain(path, fmf_config_path=fmf_config_path)
-def _run_chain_loaded(chain: ChainConfig, *, fmf_config_path: str) -> Dict[str, Any]:
-    cfg = load_config(fmf_config_path)
+        return run_chain(path, fmf_config_path=fmf_config_path, set_overrides=set_overrides)
+def _run_chain_loaded(
+    chain: ChainConfig,
+    *,
+    fmf_config_path: str,
+    set_overrides: list[str] | None = None,
+) -> Dict[str, Any]:
+    cfg = load_config(fmf_config_path, set_overrides=set_overrides)
     # Reset global metrics for a clean run record
     try:
         _metrics.clear()

@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop, feature/* ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install uv (preferred)
+        uses: astral-sh/setup-uv@v1
+        with:
+          version: 'latest'
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if command -v uv >/dev/null 2>&1; then
+            uv venv
+            . .venv/bin/activate
+            uv pip install --editable '.[aws,azure,test]' || uv pip install --editable '.[test]'
+          else
+            python -m venv .venv
+            . .venv/bin/activate
+            python -m pip install --upgrade pip
+            pip install --editable '.[aws,azure,test]' || pip install --editable '.[test]'
+          fi
+      - name: Run unit tests
+        shell: bash
+        run: |
+          set -euxo pipefail
+          . .venv/bin/activate
+          python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Run pytest suite
+        shell: bash
+        run: |
+          set -euxo pipefail
+          . .venv/bin/activate
+          pytest -q

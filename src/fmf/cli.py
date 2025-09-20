@@ -34,13 +34,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers = parser.add_subparsers(dest="command", metavar="{keys,connect,process,prompt,run,infer,export}")
-    # Extend metavar to include sdk wrappers
-    subparsers.metavar = "{keys,connect,process,prompt,run,infer,export,csv,text,images}"
+    # Extend metavar to include sdk wrappers and diagnostics for --help readability
+    subparsers.metavar = "{keys,connect,process,prompt,run,infer,export,csv,text,images,doctor,recipe}"
 
     # keys subcommands
-    keys = subparsers.add_parser("keys", help="Manage/test secret resolution")
+    keys = subparsers.add_parser(
+        "keys",
+        help="Manage/test secret resolution",
+        description="Secret resolution helpers for the active run profile.",
+    )
     keys_sub = keys.add_subparsers(dest="keys_cmd")
-    keys_test = keys_sub.add_parser("test", help="Verify secret resolution for given names")
+    keys_test = keys_sub.add_parser(
+        "test",
+        help="Verify secret resolution for logical secret names",
+        description="Attempts to resolve the provided secrets and redacts values in output.",
+    )
     keys_test.add_argument("names", nargs="*", help="Logical secret names to resolve (e.g., OPENAI_API_KEY)")
     keys_test.add_argument(
         "-c", "--config", default="fmf.yaml", help="Path to config YAML (default: fmf.yaml)"
@@ -55,7 +63,12 @@ def build_parser() -> argparse.ArgumentParser:
     # connect subcommands
     connect = subparsers.add_parser("connect", help="List and interact with data connectors")
     connect_sub = connect.add_subparsers(dest="connect_cmd")
-    connect_ls = connect_sub.add_parser("ls", help="List resources for a configured connector")
+    connect_ls = connect_sub.add_parser(
+        "ls",
+        help="List resources for a configured connector",
+        aliases=["list"],
+        description="Enumerate resources to confirm connector configuration",
+    )
     connect_ls.add_argument("name", help="Connector name from config")
     connect_ls.add_argument(
         "--select",
@@ -85,9 +98,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # run chain
-    run_cmd = subparsers.add_parser("run", help="Execute a chain from YAML")
+    run_cmd = subparsers.add_parser(
+        "run",
+        help="Execute a chain from YAML",
+        description="Run a declarative chain file and persist artefacts",
+    )
     run_cmd.add_argument("--chain", required=True, help="Path to chain YAML")
     run_cmd.add_argument("-c", "--config", default="fmf.yaml", help="Path to config YAML")
+    run_cmd.add_argument(
+        "--set",
+        dest="set_overrides",
+        action="append",
+        default=[],
+        help="Override config values: key.path=value (repeatable)",
+    )
     process.add_argument("-c", "--config", default="fmf.yaml", help="Path to config YAML")
     process.add_argument(
         "--set",
@@ -391,7 +415,11 @@ def _cmd_export(args: argparse.Namespace) -> int:
             except Exception:
                 print("Parquet input requires optional dependency 'pyarrow'.", file=sys.stderr)
                 raise SystemExit(2)
-            table = pq.read_table(path)
+            try:
+                table = pq.read_table(path)
+            except Exception as exc:
+                print(f"Failed to read Parquet file {path}: {exc}", file=sys.stderr)
+                raise SystemExit(2)
             return table.to_pylist()  # list of dicts
         raise SystemExit(2)
 
@@ -439,7 +467,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "keys" and getattr(args, "keys_cmd", None) == "test":
         return _cmd_keys_test(args)
-    if args.command == "connect" and getattr(args, "connect_cmd", None) == "ls":
+    if args.command == "connect" and getattr(args, "connect_cmd", None) in {"ls", "list"}:
         return _cmd_connect_ls(args)
     if args.command == "process":
         return _cmd_process(args)
@@ -447,7 +475,12 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_infer(args)
     if args.command == "run":
         # Delegate directly to chain runner
-        res = run_chain(args.chain, fmf_config_path=args.config)
+        overrides = getattr(args, "set_overrides", None)
+        res = run_chain(
+            args.chain,
+            fmf_config_path=args.config,
+            set_overrides=overrides or None,
+        )
         print(f"run_id={res['run_id']}")
         print(f"run_dir={res['run_dir']}")
         return 0

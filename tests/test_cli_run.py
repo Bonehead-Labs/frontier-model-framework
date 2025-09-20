@@ -28,7 +28,7 @@ class TestCliRun(unittest.TestCase):
 
         called = {"ok": False}
 
-        def fake_run_chain(path, *, fmf_config_path):
+        def fake_run_chain(path, *, fmf_config_path, set_overrides=None):
             called["ok"] = True
             return {"run_id": "r1", "run_dir": "/tmp/x"}
 

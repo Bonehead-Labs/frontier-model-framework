@@ -12,8 +12,11 @@ class TestS3ConnectorWithMoto(unittest.TestCase):
             sys.path.insert(0, src_path)
 
     def test_list_and_open_with_moto(self):
+        import importlib
+
+        sys.modules.pop("boto3", None)
+        boto3 = importlib.import_module("boto3")
         from moto import mock_aws
-        import boto3
         from fmf.connectors.s3 import S3Connector
 
         with mock_aws():
@@ -32,4 +35,3 @@ class TestS3ConnectorWithMoto(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
