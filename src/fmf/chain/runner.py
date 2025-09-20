@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Tuple
 from ..connectors import build_connector
 from ..processing.loaders import load_document_from_bytes
 from ..processing.table_rows import iter_table_rows
-from ..processing.chunking import chunk_text
+from ..processing.chunking import chunk_text, estimate_tokens
 from ..types import Chunk, Document
 from ..processing.persist import persist_artefacts, ensure_dir
 from ..inference.unified import build_llm_client
@@ -21,6 +21,7 @@ from ..observability import metrics as _metrics
 from ..observability.tracing import trace_span
 from ..prompts.registry import build_prompt_registry
 from ..rag import build_rag_pipelines
+from ..core.ids import chunk_id as compute_chunk_id
 from .loader import ChainConfig, ChainStep, load_chain
 
 
@@ -335,6 +336,9 @@ def _run_chain_loaded(
     rag_pipelines = build_rag_pipelines(rag_cfg, connectors=connectors, processing_cfg=processing_cfg)
     rag_records: Dict[str, list[dict]] = {name: [] for name in rag_pipelines}
 
+    # Determine run identifier early so tracing, artefacts, and exports share the same value
+    run_id = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
     # Process inputs: chunks (default) or table rows
     documents: List[Document] = []
     doc_lookup: Dict[str, Document] = {}
@@ -342,7 +346,7 @@ def _run_chain_loaded(
     rows: list[dict] = []
     img_groups: list[list] = []
     input_mode = (chain.inputs or {}).get("mode") if isinstance(chain.inputs, dict) else None
-    with trace_span("chain.inputs"):
+    with trace_span("chain.inputs", connector=conn_name, run_id=run_id):
         image_docs: list = []
         for ref in conn.list(selector=selector):
             with conn.open(ref, mode="rb") as f:
@@ -387,7 +391,16 @@ def _run_chain_loaded(
                     # Ensure we still create a work item for multimodal steps even without text
                     from ..processing.chunking import estimate_tokens
 
-                    chunks.append(Chunk(id=f"{doc.id}_ch0", doc_id=doc.id, text="", tokens_estimate=estimate_tokens("") ))
+                    chunk_identifier = compute_chunk_id(document_id=doc.id, index=0, payload="")
+                    chunks.append(
+                        Chunk(
+                            id=chunk_identifier,
+                            doc_id=doc.id,
+                            text="",
+                            tokens_estimate=estimate_tokens(""),
+                            provenance={"index": 0, "splitter": "auto", "length_chars": 0},
+                        )
+                    )
 
         # Build image groups if requested
         if input_mode == "images_group" and image_docs:
@@ -446,7 +459,7 @@ def _run_chain_loaded(
                         body += "\n\nRetrieved images:\n" + refs
                 messages = [Message(role="system", content="You are a helpful assistant."), Message(role="user", content=body)]
                 params = step.params or {}
-                with trace_span(f"step.{step.id}"):
+                with trace_span(f"step.{step.id}", step_id=step.id, run_id=run_id):
                     comp: Completion = client.complete(
                         messages,
                         temperature=params.get("temperature"),
@@ -534,7 +547,7 @@ def _run_chain_loaded(
                         parts.append({"type": "image_url", "url": url})
                 messages = [Message(role="system", content="You are a helpful assistant."), Message(role="user", content=parts)]
                 params = step.params or {}
-                with trace_span(f"step.{step.id}"):
+                with trace_span(f"step.{step.id}", step_id=step.id, run_id=run_id):
                     comp: Completion = client.complete(
                         messages,
                         temperature=params.get("temperature"),
@@ -611,7 +624,7 @@ def _run_chain_loaded(
                             body += "\n\nRetrieved images:\n" + refs
                     messages = [Message(role="system", content="You are a helpful assistant."), Message(role="user", content=body)]
                 params = step.params or {}
-                with trace_span(f"step.{step.id}"):
+                with trace_span(f"step.{step.id}", step_id=step.id, run_id=run_id):
                     comp: Completion = client.complete(
                         messages,
                         temperature=params.get("temperature"),
@@ -664,7 +677,6 @@ def _run_chain_loaded(
             context_all[step.output] = results
 
     # Persist artefacts and write run.yaml
-    run_id = dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     paths = persist_artefacts(artefacts_dir=artefacts_dir or "artefacts", run_id=run_id, documents=documents, chunks=chunks)
     run_dir = os.path.dirname(paths["docs"])
     # write outputs.jsonl for the last step by default

@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable
+from dataclasses import dataclass
+from typing import Any, Callable, Iterator
 
 from pydantic import BaseModel, Field
 
 from ...inference.base_client import Completion
 from .models import ChatMessageModel, ModelSpec, RunContext
+
+
+@dataclass
+class TokenChunk:
+    """Represents a streamed chunk with optional metadata."""
+
+    text: str
+    metadata: dict[str, Any] | None = None
 
 
 class CompletionRequest(BaseModel):
@@ -64,17 +73,47 @@ class BaseProvider(ABC):
     def complete(self, request: CompletionRequest) -> CompletionResponse:
         """Execute a non-streaming completion."""
 
+    def iter_tokens(self, request: CompletionRequest) -> Iterator[str]:  # pragma: no cover - overridable
+        """Yield streaming chunks and convey the final :class:`CompletionResponse` via ``StopIteration.value``.
+
+        Providers overriding this generator should ``yield`` each token (or chunk) and finally
+        ``raise StopIteration(completion)`` so that :meth:`stream` can return the full
+        :class:`CompletionResponse`. The default implementation delegates to :meth:`complete` and
+        emits the full text as a single chunk.
+        """
+
+        response = self.complete(request)
+        if response.text:
+            yield TokenChunk(response.text)
+        return response  # type: ignore[misc]
+
     def stream(
         self,
         request: CompletionRequest,
         on_token: Callable[[str], None],
-    ) -> CompletionResponse:  # pragma: no cover - default fallback
-        """Optional streaming handler; falls back to non-streaming invocation."""
+    ) -> CompletionResponse:
+        """Stream tokens to ``on_token`` and return the final :class:`CompletionResponse`.
 
-        response = self.complete(request)
-        if response.text:
-            on_token(response.text)
-        return response
+        The generator returned by :meth:`iter_tokens` is consumed until exhaustion. Providers
+        are expected to raise ``StopIteration`` with the final :class:`CompletionResponse`
+        attached to ``StopIteration.value`` (see :pep:`380`). A fallback empty response is
+        returned when no completion is supplied.
+        """
+
+        iterator = self.iter_tokens(request)
+        completion: CompletionResponse | None = None
+        while True:
+            try:
+                token = next(iterator)
+            except StopIteration as stop:
+                completion = stop.value if isinstance(stop.value, CompletionResponse) else completion
+                break
+            else:
+                if isinstance(token, TokenChunk):
+                    on_token(token.text)
+                else:
+                    on_token(token)
+        return completion or CompletionResponse(text="")
 
     def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:  # pragma: no cover - optional override
         raise NotImplementedError("Provider does not implement embeddings")
@@ -87,6 +126,7 @@ class BaseProvider(ABC):
 
 
 __all__ = [
+    "TokenChunk",
     "BaseProvider",
     "CompletionRequest",
     "CompletionResponse",

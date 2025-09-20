@@ -3,6 +3,7 @@
 Includes base protocol/types and factories to create connectors from config.
 """
 
+from ..core.interfaces import ConnectorSelectors, ConnectorSpec
 from .base import DataConnector, ResourceInfo, ResourceRef, ConnectorError
 
 
@@ -21,27 +22,53 @@ def build_connector(cfg: object) -> DataConnector:
     if ctype == "local":
         from .local import LocalConnector
 
-        return LocalConnector(name=name, root=_cfg_get(cfg, "root"), include=_cfg_get(cfg, "include"), exclude=_cfg_get(cfg, "exclude"))
+        selectors = ConnectorSelectors(
+            include=list(_cfg_get(cfg, "include") or ["**/*"]),
+            exclude=list(_cfg_get(cfg, "exclude") or []),
+        )
+        spec = ConnectorSpec(
+            name=name,
+            type="local",
+            selectors=selectors,
+            options={"root": _cfg_get(cfg, "root")},
+        )
+        return LocalConnector(spec=spec)
     if ctype == "s3":
         from .s3 import S3Connector
-
-        return S3Connector(
-            name=name,
-            bucket=_cfg_get(cfg, "bucket"),
-            prefix=_cfg_get(cfg, "prefix"),
-            region=_cfg_get(cfg, "region"),
-            kms_required=_cfg_get(cfg, "kms_required"),
+        selectors = ConnectorSelectors(
+            include=list(_cfg_get(cfg, "include") or ["**/*"]),
+            exclude=list(_cfg_get(cfg, "exclude") or []),
         )
+        spec = ConnectorSpec(
+            name=name,
+            type="s3",
+            selectors=selectors,
+            options={
+                "bucket": _cfg_get(cfg, "bucket"),
+                "prefix": _cfg_get(cfg, "prefix"),
+                "region": _cfg_get(cfg, "region"),
+                "kms_required": _cfg_get(cfg, "kms_required"),
+            },
+        )
+        return S3Connector(spec=spec)
     if ctype == "sharepoint":
         from .sharepoint import SharePointConnector
-
-        return SharePointConnector(
-            name=name,
-            site_url=_cfg_get(cfg, "site_url"),
-            drive=_cfg_get(cfg, "drive"),
-            root_path=_cfg_get(cfg, "root_path"),
-            auth_profile=_cfg_get(cfg, "auth_profile"),
+        selectors = ConnectorSelectors(
+            include=list(_cfg_get(cfg, "include") or ["**/*"]),
+            exclude=list(_cfg_get(cfg, "exclude") or []),
         )
+        spec = ConnectorSpec(
+            name=name,
+            type="sharepoint",
+            selectors=selectors,
+            options={
+                "site_url": _cfg_get(cfg, "site_url"),
+                "drive": _cfg_get(cfg, "drive"),
+                "root_path": _cfg_get(cfg, "root_path"),
+                "auth_profile": _cfg_get(cfg, "auth_profile"),
+            },
+        )
+        return SharePointConnector(spec=spec)
     raise ValueError(f"Unsupported connector type: {ctype!r}")
 
 

@@ -132,6 +132,16 @@ class ProcessingConfig(BaseModel):
     tables: ProcessingTables = Field(default_factory=ProcessingTables)
     images: ProcessingImages = Field(default_factory=ProcessingImages)
     metadata: ProcessingMetadata = Field(default_factory=ProcessingMetadata)
+    hash_algo: Optional[Literal["blake2b", "xxh64"]] = None
+
+
+class ExperimentalConfig(BaseModel):
+    streaming: bool = False
+    observability_otel: bool = False
+
+
+class RetriesConfig(BaseModel):
+    max_elapsed_s: Optional[float] = Field(default=None, ge=0)
 
 
 # Inference
@@ -283,6 +293,8 @@ class FmfConfig(BaseModel):
     prompt_registry: Optional[PromptRegistryConfig] = None
     run: Optional[RunConfig] = None
     rag: Optional[RagConfig] = None
+    experimental: Optional[ExperimentalConfig] = None
+    retries: Optional[RetriesConfig] = None
 
     # allow extra to keep forward-compatible
     model_config = _ConfigDict(extra="allow")
@@ -299,6 +311,8 @@ __all__ = [
     "S3Connector",
     "SharePointConnector",
     "ProcessingConfig",
+    "ExperimentalConfig",
+    "RetriesConfig",
     "InferenceConfig",
     "PromptRegistryConfig",
     "ExportConfig",

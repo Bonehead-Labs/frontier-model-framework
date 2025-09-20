@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..core.interfaces import ExportSpec
 from .base import Exporter, ExportError, ExportResult
 
 
@@ -19,16 +20,22 @@ def build_exporter(cfg: Any) -> Exporter:
     if etype == "s3":
         from .s3 import S3Exporter
 
-        return S3Exporter(
+        spec = ExportSpec(
             name=name,
-            bucket=_cfg_get(cfg, "bucket"),
-            prefix=_cfg_get(cfg, "prefix"),
-            format=_cfg_get(cfg, "format"),
-            compression=_cfg_get(cfg, "compression"),
-            partition_by=_cfg_get(cfg, "partition_by"),
-            sse=_cfg_get(cfg, "sse"),
-            kms_key_id=_cfg_get(cfg, "kms_key_id"),
+            type="s3",
+            format=_cfg_get(cfg, "format") or "jsonl",
+            write_mode=_cfg_get(cfg, "mode", "append"),
+            key_fields=_cfg_get(cfg, "key_fields"),
+            options={
+                "bucket": _cfg_get(cfg, "bucket"),
+                "prefix": _cfg_get(cfg, "prefix"),
+                "compression": _cfg_get(cfg, "compression"),
+                "partition_by": _cfg_get(cfg, "partition_by"),
+                "sse": _cfg_get(cfg, "sse"),
+                "kms_key_id": _cfg_get(cfg, "kms_key_id"),
+            },
         )
+        return S3Exporter(spec=spec)
     if etype == "dynamodb":
         from .dynamodb import DynamoDBExporter
 
@@ -79,4 +86,3 @@ def build_exporter(cfg: Any) -> Exporter:
 
 
 __all__ = ["Exporter", "ExportError", "ExportResult", "build_exporter"]
-

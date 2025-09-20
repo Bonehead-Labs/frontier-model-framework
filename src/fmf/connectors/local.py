@@ -1,27 +1,38 @@
 from __future__ import annotations
 
-import os
 import fnmatch
+import os
 import pathlib
 import datetime as dt
 from typing import IO, Iterable, List, Optional
 
-from .base import DataConnector, ResourceRef, ResourceInfo, ConnectorError
+from ..core.interfaces import ConnectorSpec, ConnectorSelectors, RunContext
+from ..core.interfaces.connectors_base import BaseConnector
+from .base import ResourceRef, ResourceInfo, ConnectorError
 
 
-class LocalConnector:
+class LocalConnector(BaseConnector):
     def __init__(
         self,
         *,
-        name: str,
-        root: str,
+        spec: ConnectorSpec | None = None,
+        name: str | None = None,
+        root: str | None = None,
         include: Optional[List[str]] = None,
         exclude: Optional[List[str]] = None,
     ) -> None:
-        self.name = name
-        self.root = os.path.abspath(root)
-        self._include = include or ["**/*"]
-        self._exclude = exclude or []
+        if spec is None:
+            if name is None or root is None:
+                raise ValueError("LocalConnector requires either a spec or name/root parameters")
+            selectors = ConnectorSelectors(
+                include=list(include or ["**/*"]),
+                exclude=list(exclude or []),
+            )
+            spec = ConnectorSpec(name=name, type="local", selectors=selectors, options={"root": root})
+        super().__init__(spec)
+        self.root = os.path.abspath(spec.options.get("root", root or "."))
+        self._include = list(spec.selectors.include or ["**/*"])
+        self._exclude = list(spec.selectors.exclude or [])
 
     def _iter_paths(self, selector: List[str] | None) -> Iterable[pathlib.Path]:
         patterns = selector or self._include
@@ -54,12 +65,23 @@ class LocalConnector:
                 seen.add(rel)
                 yield p
 
-    def list(self, selector: list[str] | None = None) -> Iterable[ResourceRef]:
+    def list(
+        self,
+        *,
+        selector: list[str] | None = None,
+        context: RunContext | None = None,
+    ) -> Iterable[ResourceRef]:
         for p in self._iter_paths(selector):
             rel = p.relative_to(self.root).as_posix()
             yield ResourceRef(id=rel, uri=p.resolve().as_uri(), name=p.name)
 
-    def open(self, ref: ResourceRef, mode: str = "rb") -> IO[bytes]:
+    def open(
+        self,
+        ref: ResourceRef,
+        *,
+        mode: str = "rb",
+        context: RunContext | None = None,
+    ) -> IO[bytes]:
         path = pathlib.Path(self.root, ref.id)
         if not path.is_file():
             raise ConnectorError(f"Resource not found: {ref.id}")
@@ -68,7 +90,7 @@ class LocalConnector:
             mode = mode + "b"
         return open(path, mode)
 
-    def info(self, ref: ResourceRef) -> ResourceInfo:
+    def info(self, ref: ResourceRef, *, context: RunContext | None = None) -> ResourceInfo:
         path = pathlib.Path(self.root, ref.id)
         if not path.exists():
             raise ConnectorError(f"Resource not found: {ref.id}")

@@ -4,9 +4,7 @@ import datetime as _dt
 from dataclasses import dataclass
 from typing import IO, Any, Iterable, Protocol
 
-
-class ConnectorError(Exception):
-    """Errors raised by DataConnector implementations."""
+from ..core.errors import ConnectorError
 
 
 @dataclass(frozen=True)
@@ -62,4 +60,3 @@ __all__ = [
     "ResourceInfo",
     "DataConnector",
 ]
-

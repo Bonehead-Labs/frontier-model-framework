@@ -23,13 +23,17 @@ class TestProcessingPersist(unittest.TestCase):
             paths = persist_artefacts(artefacts_dir=tmp, run_id="run123", documents=docs, chunks=chunks)
             self.assertTrue(os.path.exists(paths["docs"]))
             self.assertTrue(os.path.exists(paths["chunks"]))
+            self.assertTrue(os.path.exists(paths["manifest"]))
             with open(paths["docs"], "r", encoding="utf-8") as f:
                 lines = f.read().strip().splitlines()
                 obj = json.loads(lines[0])
                 self.assertEqual(obj["id"], "d1")
                 self.assertEqual(obj["text"], "hello")
+            with open(paths["manifest"], "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+                self.assertEqual(manifest["run_id"], "run123")
+                self.assertEqual(manifest["documents"][0]["id"], "d1")
 
 
 if __name__ == "__main__":
     unittest.main()
-

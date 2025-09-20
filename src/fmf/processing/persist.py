@@ -26,7 +26,29 @@ def persist_artefacts(
     chunks_path = os.path.join(run_dir, "chunks.jsonl")
     write_jsonl(docs_path, (d.to_serializable() for d in documents))
     write_jsonl(chunks_path, (c.to_serializable() for c in chunks))
-    return {"docs": docs_path, "chunks": chunks_path}
+    manifest_path = os.path.join(run_dir, "manifest.json")
+    manifest = {
+        "run_id": run_id,
+        "documents": [
+            {
+                "id": d.id,
+                "source_uri": d.source_uri,
+                "hash": d.provenance.get("hash") if d.provenance else None,
+            }
+            for d in documents
+        ],
+        "chunks": [
+            {
+                "id": c.id,
+                "doc_id": c.doc_id,
+                "length": len(c.text),
+            }
+            for c in chunks
+        ],
+    }
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    return {"docs": docs_path, "chunks": chunks_path, "manifest": manifest_path}
 
 
 def update_index(artefacts_dir: str, entry: dict) -> None:
