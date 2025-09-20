@@ -23,3 +23,10 @@ python scripts/text_to_json.py -r examples/recipes/text_to_json.yaml -c fmf.yaml
 python scripts/text_to_json.py -r examples/recipes/text_to_json.yaml -c fmf.yaml --json
 ```
 Notes: use `--json` for machine-readable output; other flags passed through to the helper.
+
+## fabric_comments.py
+```
+python scripts/fabric_comments.py -c fmf.yaml
+python scripts/fabric_comments.py -c fmf.yaml --json
+```
+Notes: defaults to `examples/recipes/fabric_comments.yaml`; supports the same optional RAG overrides.
