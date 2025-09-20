@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from typing import Callable, Optional
+import os
+from typing import Any, Callable, Iterable, Optional
 
 from .base_client import Completion, InferenceError, LLMClient, Message, RateLimiter, with_retries
+from ..core.interfaces.providers_base import TokenChunk
+from .registry import register_provider
 from ..processing.chunking import estimate_tokens
 
 
@@ -15,11 +18,13 @@ class AzureOpenAIClient:
         deployment: str,
         rate_per_sec: float = 5.0,
         transport: Optional[Callable[[dict], dict]] = None,
+        stream_transport: Optional[Callable[[dict], Iterable[dict]]] = None,
     ) -> None:
         self.endpoint = endpoint
         self.api_version = api_version
         self.deployment = deployment
         self._transport = transport
+        self._stream_transport = stream_transport
         self._rl = RateLimiter(rate_per_sec)
 
     def _default_transport(self, payload: dict) -> dict:  # pragma: no cover - requires network
@@ -75,16 +80,7 @@ class AzureOpenAIClient:
             "max_tokens": max_tokens,
         }
 
-        def _do():
-            self._rl.wait()
-            transport = self._transport or self._default_transport
-            data = transport(payload)
-            # Expected shape: {choices:[{message:{content:...}, finish_reason:...}], usage:{prompt_tokens, completion_tokens}, model:...}
-            if stream and on_token:
-                # Simulate streaming by tokenizing the content and invoking callback
-                text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                for tok in text.split():
-                    on_token(tok)
+        def _parse_response(data: dict) -> Completion:
             choice = (data.get("choices") or [{}])[0]
             msg = (choice.get("message") or {}).get("content", "")
             finish = choice.get("finish_reason")
@@ -97,7 +93,77 @@ class AzureOpenAIClient:
                 ct = estimate_tokens(msg)
             return Completion(text=msg, model=data.get("model"), stop_reason=finish, prompt_tokens=pt, completion_tokens=ct)
 
+        def _stream_enabled() -> bool:
+            value = os.getenv("FMF_EXPERIMENTAL_STREAMING", "")
+            return value.lower() in {"1", "true", "yes", "on"}
+
+        def _stream_payload() -> Optional[Completion]:
+            transport = self._stream_transport
+            if transport is None:
+                return None
+            chunks: list[str] = []
+            finish_reason: Optional[str] = None
+            usage: dict = {}
+            model_name: Optional[str] = None
+            for event in transport(payload):
+                if not isinstance(event, dict):
+                    continue
+                model_name = event.get("model") or model_name
+                usage = event.get("usage") or usage
+                for choice in event.get("choices", []):
+                    delta = choice.get("delta") or {}
+                    content = delta.get("content") or ""
+                    if content:
+                        chunk = TokenChunk(content, metadata={"provider": "azure", "type": "delta"})
+                        chunks.append(chunk.text)
+                        if on_token is not None:
+                            on_token(chunk.text)
+                    finish_reason = choice.get("finish_reason") or finish_reason
+            if not chunks:
+                return None
+            text = "".join(chunks)
+            pt = usage.get("prompt_tokens") if isinstance(usage, dict) else None
+            ct = usage.get("completion_tokens") if isinstance(usage, dict) else None
+            if pt is None:
+                pt = sum(estimate_tokens(m.content) for m in messages)
+            if ct is None:
+                ct = estimate_tokens(text)
+            return Completion(
+                text=text,
+                model=model_name or self.deployment,
+                stop_reason=finish_reason,
+                prompt_tokens=pt,
+                completion_tokens=ct,
+            )
+
+        def _call_transport() -> dict:
+            transport = self._transport or self._default_transport
+            return transport(payload)
+
+        def _do():
+            self._rl.wait()
+            if stream and on_token is not None:
+                if _stream_enabled():
+                    streamed = _stream_payload()
+                    if streamed is not None:
+                        return streamed
+                data = _call_transport()
+                completion = _parse_response(data)
+                if completion.text:
+                    on_token(completion.text)
+                return completion
+            data = _call_transport()
+            return _parse_response(data)
+
         return with_retries(_do)
+
+
+@register_provider("azure_openai")
+def _build_from_config(cfg: Any) -> AzureOpenAIClient:  # type: ignore[name-defined]
+    endpoint = getattr(cfg, "endpoint", None) if not isinstance(cfg, dict) else cfg.get("endpoint")
+    api_version = getattr(cfg, "api_version", None) if not isinstance(cfg, dict) else cfg.get("api_version")
+    deployment = getattr(cfg, "deployment", None) if not isinstance(cfg, dict) else cfg.get("deployment")
+    return AzureOpenAIClient(endpoint=endpoint, api_version=api_version, deployment=deployment)
 
 
 __all__ = ["AzureOpenAIClient"]

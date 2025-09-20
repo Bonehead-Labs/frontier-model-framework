@@ -1,6 +1,4 @@
-class ProcessingError(Exception):
-    """Raised when processing fails (unsupported format, parse error, missing deps)."""
+from ..core.errors import ProcessingError
 
 
 __all__ = ["ProcessingError"]
-

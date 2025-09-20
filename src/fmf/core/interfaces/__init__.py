@@ -7,6 +7,7 @@ adopt them without breaking backwards compatibility.
 
 from .models import (
     ConnectorSpec,
+    ConnectorSelectors,
     DocumentModel,
     ChunkModel,
     ModelSpec,
@@ -36,6 +37,7 @@ __all__ = [
     "EmbeddingResponse",
     "BaseExporter",
     "ConnectorSpec",
+    "ConnectorSelectors",
     "DocumentModel",
     "ChunkModel",
     "ModelSpec",

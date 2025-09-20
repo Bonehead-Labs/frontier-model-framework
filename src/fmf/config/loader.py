@@ -104,6 +104,19 @@ def _apply_profile(cfg: dict, env: Mapping[str, str]) -> None:
         _deep_merge(cfg, overlay)
 
 
+def _apply_runtime_toggles(cfg: FmfConfig) -> None:
+    if getattr(cfg, "experimental", None):
+        exp = cfg.experimental
+        if exp and exp.streaming and not os.getenv("FMF_EXPERIMENTAL_STREAMING"):
+            os.environ["FMF_EXPERIMENTAL_STREAMING"] = "1"
+        if exp and exp.observability_otel and not os.getenv("FMF_OBSERVABILITY_OTEL"):
+            os.environ["FMF_OBSERVABILITY_OTEL"] = "1"
+    if getattr(cfg, "processing", None) and cfg.processing and cfg.processing.hash_algo:
+        os.environ.setdefault("FMF_HASH_ALGO", cfg.processing.hash_algo)
+    if getattr(cfg, "retries", None) and cfg.retries and cfg.retries.max_elapsed_s is not None:
+        os.environ.setdefault("FMF_RETRY_MAX_ELAPSED", str(cfg.retries.max_elapsed_s))
+
+
 def load_config(
     path: str,
     *,
@@ -135,6 +148,7 @@ def load_config(
     # Attempt to validate with Pydantic if available
     try:
         model = FmfConfig.model_validate(data)  # type: ignore[attr-defined]
+        _apply_runtime_toggles(model)
         return model
     except Exception:
         # Fallback to raw dict when validation not available

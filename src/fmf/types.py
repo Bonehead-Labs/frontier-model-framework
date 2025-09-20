@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import uuid
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 
@@ -17,6 +17,10 @@ class Blob:
     media_type: str
     data: Optional[bytes] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def with_id(self, new_id: str) -> "Blob":
+        self.id = new_id
+        return self
 
     def to_serializable(self) -> Dict[str, Any]:
         d = dict(id=self.id, media_type=self.media_type, metadata=self.metadata)
@@ -34,6 +38,7 @@ class Document:
     text: Optional[str] = None
     blobs: Optional[List[Blob]] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+    provenance: Dict[str, Any] = field(default_factory=dict)
 
     def to_serializable(self) -> Dict[str, Any]:
         return {
@@ -42,6 +47,7 @@ class Document:
             "text": self.text,
             "blobs": [b.to_serializable() for b in (self.blobs or [])],
             "metadata": self.metadata,
+            "provenance": self.provenance,
         }
 
 
@@ -52,6 +58,7 @@ class Chunk:
     text: str
     tokens_estimate: int
     metadata: Dict[str, Any] = field(default_factory=dict)
+    provenance: Dict[str, Any] = field(default_factory=dict)
 
     def to_serializable(self) -> Dict[str, Any]:
         return {
@@ -60,8 +67,8 @@ class Chunk:
             "text": self.text,
             "tokens_estimate": self.tokens_estimate,
             "metadata": self.metadata,
+            "provenance": self.provenance,
         }
 
 
 __all__ = ["Blob", "Document", "Chunk"]
-

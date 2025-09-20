@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import sys
 import tempfile
@@ -56,7 +57,33 @@ class TestCliConnectLs(unittest.TestCase):
         # Expect a line for a.md with id and uri separated by a tab
         self.assertTrue(any(line.split("\t")[0] == "a.md" for line in out))
 
+    def test_connect_ls_json(self):
+        from fmf.cli import main
+
+        yaml_path = self._write_yaml(
+            f"""
+            project: fmf
+            connectors:
+              - name: local_docs
+                type: local
+                root: {self.tmpdir.name}
+                include: ["**/*"]
+            """
+        )
+        buf = io.StringIO()
+        sys_stdout = sys.stdout
+        try:
+            sys.stdout = buf
+            rc = main(["connect", "ls", "local_docs", "-c", yaml_path, "--json"])
+        finally:
+            sys.stdout = sys_stdout
+
+        self.assertEqual(rc, 0)
+        payload = textwrap.dedent(buf.getvalue())
+        objs = json.loads(payload)
+        self.assertIsInstance(objs, list)
+        self.assertTrue(any(o["name"] == "a.md" for o in objs))
+
 
 if __name__ == "__main__":
     unittest.main()
-

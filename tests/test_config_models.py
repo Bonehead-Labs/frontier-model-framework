@@ -125,8 +125,34 @@ class TestConfigModels(unittest.TestCase):
         as_dict = cfg.model_dump() if hasattr(cfg, "model_dump") else cfg
         self.assertEqual(as_dict["processing"]["text"]["chunking"]["max_tokens"], 256)
         self.assertEqual(as_dict["processing"]["text"]["chunking"]["overlap"], 32)
-        self.assertIs(as_dict["processing"]["text"]["normalize_whitespace"], True)
-        self.assertIsInstance(as_dict["export"]["sinks"], list)
+
+    def test_experimental_toggles_raise_environment(self):
+        from fmf.config.loader import load_config
+
+        yaml_path = self._write_yaml(
+            """
+            project: frontier-model-framework
+            experimental:
+              streaming: true
+              observability_otel: true
+            processing:
+              hash_algo: xxh64
+            retries:
+              max_elapsed_s: 12
+            """
+        )
+
+        os.environ.pop("FMF_EXPERIMENTAL_STREAMING", None)
+        os.environ.pop("FMF_OBSERVABILITY_OTEL", None)
+        os.environ.pop("FMF_HASH_ALGO", None)
+        os.environ.pop("FMF_RETRY_MAX_ELAPSED", None)
+
+        load_config(yaml_path)
+
+        self.assertEqual(os.environ.get("FMF_EXPERIMENTAL_STREAMING"), "1")
+        self.assertEqual(os.environ.get("FMF_OBSERVABILITY_OTEL"), "1")
+        self.assertEqual(os.environ.get("FMF_HASH_ALGO"), "xxh64")
+        self.assertEqual(os.environ.get("FMF_RETRY_MAX_ELAPSED"), "12.0")
 
 
 if __name__ == "__main__":

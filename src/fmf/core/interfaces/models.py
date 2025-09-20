@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class RunContext(BaseModel):
@@ -104,14 +104,20 @@ class ModelSpec(BaseModel):
 class ExportSpec(BaseModel):
     """Standardised exporter configuration."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str
     type: str
     destination: str | None = None
     format: Literal["jsonl", "csv", "parquet", "delta", "excel", "native", "custom"] = "jsonl"
-    mode: Literal["append", "upsert", "overwrite"] = "append"
+    write_mode: Literal["append", "upsert", "overwrite"] = Field("append", alias="mode")
     key_fields: list[str] | None = None
     options: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def mode(self) -> str:
+        return self.write_mode
 
 
 __all__ = [

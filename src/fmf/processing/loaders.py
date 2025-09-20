@@ -5,6 +5,12 @@ import io
 import os
 from typing import Any, Iterable, List, Optional, Tuple
 
+from ..core.ids import (
+    blob_id as compute_blob_id,
+    document_id as compute_document_id,
+    normalize_text as normalize_text_bytes,
+    utc_now_iso,
+)
 from ..types import Blob, Document
 from .errors import ProcessingError
 from .text import html_to_text, normalize_text
@@ -160,8 +166,44 @@ def load_document_from_bytes(
         blobs = [blob]
         text_out = None
 
-    return Document(id=os.path.basename(filename), source_uri=source_uri, text=text_out, blobs=blobs, metadata=meta)
+    payload = data if text_out is None else normalize_text_bytes(text_out)
+    content_type_map = {
+        "text": "text/plain; charset=utf-8",
+        "html": "text/html; charset=utf-8",
+        "csv": "text/csv; charset=utf-8",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "parquet": "application/x-parquet",
+        "image": media_type if 'media_type' in locals() else "image/octet-stream",
+    }
+    content_type = content_type_map.get(ptype, "application/octet-stream")
+    doc_id = compute_document_id(
+        source_uri=source_uri,
+        payload=payload or b"",
+        content_type=content_type,
+        content_length=len(payload or b""),
+    )
+    provenance = {
+        "source_uri": source_uri,
+        "root_filename": os.path.basename(filename),
+        "hash": doc_id.split("_", 1)[-1],
+        "created_at": utc_now_iso(),
+    }
+    if blobs:
+        managed: List[Blob] = []
+        for blob in blobs:
+            data_bytes = blob.data or b""
+            managed.append(
+                blob.with_id(
+                    compute_blob_id(
+                        document_id=doc_id,
+                        media_type=blob.media_type,
+                        payload=data_bytes,
+                    )
+                )
+            )
+        blobs = managed
+
+    return Document(id=doc_id, source_uri=source_uri, text=text_out, blobs=blobs, metadata=meta, provenance=provenance)
 
 
 __all__ = ["detect_type", "load_document_from_bytes"]
-

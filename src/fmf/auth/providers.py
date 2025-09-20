@@ -7,10 +7,7 @@ from typing import Dict, Iterable, Mapping, Protocol
 
 # Accept either Pydantic models or dict-like configs to avoid hard dependency at import time
 from ..config.models import AuthConfig  # type: ignore
-
-
-class AuthError(Exception):
-    """Raised when secret resolution fails or a provider is unavailable."""
+from ..core.errors import AuthError
 
 
 def _redact(_: str | None) -> str:

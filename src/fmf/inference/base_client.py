@@ -4,6 +4,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Literal, Optional, Protocol
 
+from ..core.errors import InferenceError
+
 
 Role = Literal["system", "user", "assistant", "tool"]
 
@@ -23,16 +25,6 @@ class Completion:
     stop_reason: Optional[str] = None
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
-
-
-class InferenceError(Exception):
-    """Raised on provider errors; may wrap HTTP or SDK errors."""
-
-    def __init__(self, message: str, *, status_code: int | None = None):
-        super().__init__(message)
-        self.status_code = status_code
-
-
 class LLMClient(Protocol):
     def complete(
         self,
