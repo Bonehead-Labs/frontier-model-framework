@@ -28,7 +28,7 @@ class TestCliRun(unittest.TestCase):
 
         called = {"ok": False}
 
-        def fake_run_chain(path, *, fmf_config_path):
+        def fake_run_chain(path, *, fmf_config_path, set_overrides=None):
             called["ok"] = True
             return {"run_id": "r1", "run_dir": "/tmp/x"}
 
@@ -46,6 +46,25 @@ class TestCliRun(unittest.TestCase):
         self.assertTrue(called["ok"])
         out = buf.getvalue()
         self.assertIn("run_id=r1", out)
+
+    def test_cli_run_quiet(self):
+        import fmf.cli as cli
+
+        tmp_chain = self._write_yaml("name: t\ninputs: {}\nsteps: []\n")
+        tmp_cfg = self._write_yaml("project: fmf\n")
+
+        cli.run_chain = lambda *a, **k: {"run_id": "r1", "run_dir": "/tmp/x"}  # type: ignore
+
+        buf = io.StringIO()
+        orig = sys.stdout
+        try:
+            sys.stdout = buf
+            rc = cli.main(["run", "--chain", tmp_chain, "-c", tmp_cfg, "--quiet"])
+        finally:
+            sys.stdout = orig
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(buf.getvalue().strip(), "")
 
 
 if __name__ == "__main__":

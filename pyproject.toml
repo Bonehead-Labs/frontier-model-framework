@@ -38,3 +38,9 @@ excel = [
 parquet = [
   "pyarrow>=14,<17",
 ]
+test = [
+  "pytest>=8,<9",
+  "pytest-cov>=5,<6",
+  "pyarrow>=14,<17",
+  "moto[s3]>=5,<6",
+]

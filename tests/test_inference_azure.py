@@ -14,6 +14,8 @@ class TestAzureOpenAIClient(unittest.TestCase):
         from fmf.inference.azure_openai import AzureOpenAIClient
         from fmf.inference.base_client import Message
 
+        os.environ["FMF_EXPERIMENTAL_STREAMING"] = "1"
+
         def transport(payload):
             assert "messages" in payload
             return {
@@ -27,16 +29,36 @@ class TestAzureOpenAIClient(unittest.TestCase):
                 "usage": {"prompt_tokens": 5, "completion_tokens": 2},
             }
 
-        client = AzureOpenAIClient(endpoint="https://example", api_version="2024-02-15-preview", deployment="x", transport=transport)
-        toks = []
-        comp = client.complete([Message(role="system", content="s"), Message(role="user", content="u")], temperature=0.2, max_tokens=10, stream=True, on_token=toks.append)
+        def stream_transport(payload):
+            yield {"choices": [{"delta": {"content": "Hello "}}]}
+            yield {
+                "choices": [{"delta": {"content": "world"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 2},
+                "model": "gpt-4o-mini",
+            }
+
+        client = AzureOpenAIClient(
+            endpoint="https://example",
+            api_version="2024-02-15-preview",
+            deployment="x",
+            transport=transport,
+            stream_transport=stream_transport,
+        )
+        toks: list[str] = []
+        comp = client.complete(
+            [Message(role="system", content="s"), Message(role="user", content="u")],
+            temperature=0.2,
+            max_tokens=10,
+            stream=True,
+            on_token=toks.append,
+        )
         self.assertEqual(comp.text, "Hello world")
         self.assertEqual(comp.model, "gpt-4o-mini")
         self.assertEqual(comp.prompt_tokens, 5)
         self.assertEqual(comp.completion_tokens, 2)
-        self.assertGreater(len(toks), 1)
+        self.assertEqual(toks, ["Hello ", "world"])
+        os.environ.pop("FMF_EXPERIMENTAL_STREAMING", None)
 
 
 if __name__ == "__main__":
     unittest.main()
-

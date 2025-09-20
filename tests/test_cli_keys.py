@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import sys
 import tempfile
@@ -49,6 +50,8 @@ class TestCliKeys(unittest.TestCase):
         self.assertIn("API_KEY", out)
         self.assertIn("****", out)
         self.assertNotIn("sekrit", out)
+        self.assertIn("Secrets:", out)
+        self.assertIn("Diagnostics:", out)
 
     def test_keys_test_needs_names_without_mapping(self):
         from fmf.cli import main
@@ -71,7 +74,65 @@ class TestCliKeys(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertIn("No secret names provided", buf.getvalue())
 
+    def test_keys_diagnostics_detects_missing_fields(self):
+        from fmf.cli import main
+
+        yaml_path = self._write_yaml(
+            """
+            project: fmf
+            auth: { provider: env }
+            connectors:
+              - name: s3_raw
+                type: s3
+            inference:
+              provider: aws_bedrock
+              aws_bedrock: { region: us-east-1 }
+            export:
+              sinks:
+                - name: ddb
+                  type: dynamodb
+            """
+        )
+        os.environ["DUMMY"] = "value"
+
+        buf = io.StringIO()
+        sys_stdout = sys.stdout
+        try:
+            sys.stdout = buf
+            rc = main(["keys", "test", "-c", yaml_path, "DUMMY"])
+        finally:
+            sys.stdout = sys_stdout
+
+        self.assertEqual(rc, 0)
+        out = buf.getvalue()
+        self.assertIn("Connector", out)
+        self.assertIn("WARN", out)
+        self.assertIn("missing fields", out)
+
+    def test_keys_json_output(self):
+        from fmf.cli import main
+
+        yaml_path = self._write_yaml(
+            """
+            project: fmf
+            auth: { provider: env }
+            """
+        )
+        os.environ["SECRET"] = "value"
+
+        buf = io.StringIO()
+        sys_stdout = sys.stdout
+        try:
+            sys.stdout = buf
+            rc = main(["keys", "test", "-c", yaml_path, "--json", "SECRET"])
+        finally:
+            sys.stdout = sys_stdout
+
+        self.assertEqual(rc, 0)
+        payload = json.loads(buf.getvalue())
+        self.assertEqual(payload["secrets"][0]["name"], "SECRET")
+        self.assertEqual(payload["secrets"][0]["status"], "OK")
+
 
 if __name__ == "__main__":
     unittest.main()
-

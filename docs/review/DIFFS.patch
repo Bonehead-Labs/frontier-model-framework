@@ -1,0 +1,1260 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+new file mode 100644
+index 0000000..420d7bc
+--- /dev/null
++++ b/.github/workflows/ci.yml
+@@ -0,0 +1,46 @@
++name: CI
++
++on:
++  push:
++    branches: [ main, develop, feature/* ]
++  pull_request:
++  workflow_dispatch:
++
++jobs:
++  tests:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-python@v5
++        with:
++          python-version: '3.12'
++      - name: Install uv (preferred)
++        uses: astral-sh/setup-uv@v1
++        with:
++          version: 'latest'
++      - name: Install dependencies
++        shell: bash
++        run: |
++          set -euxo pipefail
++          if command -v uv >/dev/null 2>&1; then
++            uv venv
++            . .venv/bin/activate
++            uv pip install --editable '.[aws,azure,test]' || uv pip install --editable '.[test]'
++          else
++            python -m venv .venv
++            . .venv/bin/activate
++            python -m pip install --upgrade pip
++            pip install --editable '.[aws,azure,test]' || pip install --editable '.[test]'
++          fi
++      - name: Run unit tests
++        shell: bash
++        run: |
++          set -euxo pipefail
++          . .venv/bin/activate
++          python -m unittest discover -s tests -p 'test_*.py' -v
++      - name: Run pytest suite
++        shell: bash
++        run: |
++          set -euxo pipefail
++          . .venv/bin/activate
++          pytest -q
+diff --git a/docs/review/ARCHITECTURE.md b/docs/review/ARCHITECTURE.md
+new file mode 100644
+index 0000000..9e19785
+--- /dev/null
++++ b/docs/review/ARCHITECTURE.md
+@@ -0,0 +1,28 @@
++# Frontier Model Framework – Architecture Audit
++
++Short summary: FMF is organised around YAML-driven runs that fan through connectors, processors, inference providers, and exporters. A new `core/interfaces` module captures minimal contracts so each layer can be swapped independently.
++
++```mermaid
++graph TD
++    CLI[CLI / SDK] --> CFG[YAML Config Loader]
++    CFG --> AUTH[Auth & Keys]
++    CFG --> CORE[Core Interfaces]
++    AUTH --> CONN[Data Connection Layer]
++    CORE --> CONN
++    CONN --> PROC[Processing Layer]
++    PROC --> INF[Inference Layer]
++    PROC --> RAG[RAG Pipelines]
++    INF --> EXPORT[Export Layer]
++    INF --> PROMPTS[Prompt Registry]
++    EXPORT --> ARTE[Artefacts / External Sinks]
++    PROMPTS --> ARTE
++    RAG --> INF
++```
++
++Layer boundaries:
++- **Config/Auth:** YAML-first configs elevated via `load_config`; secrets resolved through pluggable providers (env, Azure Key Vault, AWS Secrets Manager).
++- **Data connectors:** Local, S3, SharePoint adapters follow `ResourceRef`/`ResourceInfo`; streaming reads but missing retries/backoff.
++- **Processing:** Document loaders, chunkers, tables, and OCR feed `Document`/`Chunk` types with artefacts persisted under `artefacts/<run_id>/`.
++- **Inference:** Unified `LLMClient` wraps Azure OpenAI & Bedrock with retry helper; new `ModelSpec` contract describes capabilities and pricing metadata.
++- **Export:** Exporters serialise outputs to S3, SharePoint Excel, DynamoDB, Delta, Redshift with unified `ExportSpec`.
++- **Prompt Versioning / RAG:** Git-backed prompts with explicit versions; RAG pipelines iterate over connectors and persist retrieval artefacts for auditability.
+diff --git a/docs/review/GAP_ANALYSIS.md b/docs/review/GAP_ANALYSIS.md
+new file mode 100644
+index 0000000..2f79754
+--- /dev/null
++++ b/docs/review/GAP_ANALYSIS.md
+@@ -0,0 +1,12 @@
++# Gap Analysis
++
++| Layer | Issue | Severity | Effort | Note |
++| --- | --- | --- | --- | --- |
++| Config & Auth | No single Pydantic contract for connector/provider/export schemas; `load_config` returns dicts in several paths so downstream code branches on isinstance checks. | P1 | M | Introduced `core.interfaces.models` as target schema; need to retrofit config loader to emit these types and remove ad-hoc dict handling. |
++| Connectors | S3/SharePoint connectors perform SDK calls without retries/backoff or structured throttling; `S3Connector.open` returns raw botocore stream without context manager hygiene. | P0 | M | Wrap calls with jittered retry + context-aware errors; adopt new `BaseConnector` once config spec wired in. |
++| Processing | `cli.process` loads entire files into memory and re-chunks per invocation; chunk IDs depend on UUIDs so artefact regeneration is non-deterministic. | P1 | L | Move processing into reusable pipeline that hashes content for IDs and streams large files; align outputs with `DocumentModel`/`ChunkModel`. |
++| Inference | Azure/Bedrock adapters simulate streaming and lack provider-specific telemetry (latency, cost); no enforcement of modality vs prompt inputs. | P0 | M | Use `ModelSpec` to drive capability validation, add metrics hooks, and wire real streaming callbacks. |
++| Export | Exporters accept heterogeneous payloads but share no schema awareness; `build_exporter` ignores run context and upsert semantics vary per sink. | P1 | M | Standardise on `ExportSpec` + `BaseExporter.write` signature with `RunContext`; add idempotency helpers (default key fields) per sink. |
++| Prompt Registry & RAG | Prompt registry lacks content hashing enforcement and RAG pipelines do not surface concurrency or retry controls. | P2 | S | Extend registry to persist `content_hash` per version and expose pipeline concurrency/timeout via config spec. |
++| Observability & DX | Logs emit deprecation warnings (utcnow) and there is no structured span context around connectors/inference for tracing. CLI verbs inconsistent prior to this patch. | P1 | M | Adopt timezone-aware timestamps, add OpenTelemetry spans, finalise CLI verbs & `--set` parity (partially addressed). |
++| Testing & CI | No GH Actions pipeline previously; fixtures missing for multimodal + parquet; pytest not guaranteed in env. | P1 | S | Added CI workflow, smoke fixtures, and unit tests; follow-up to ensure pytest installed in base image. |
+diff --git a/docs/review/README_UPDATES.md b/docs/review/README_UPDATES.md
+new file mode 100644
+index 0000000..1c709aa
+--- /dev/null
++++ b/docs/review/README_UPDATES.md
+@@ -0,0 +1,65 @@
++# DX Updates & Contribution Notes
++
++## CLI ergonomics
++- `fmf run` now honours `--set key.path=value` overrides, keeping parity with `process`, `infer`, and `connect`.
++- `fmf connect list` is available as a human-friendly alias for `connect ls`.
++- `fmf keys test` includes richer help text and reiterates that values are redacted; ideal starting point for onboarding scripts.
++
++## Quick profiles for `fmf.yaml`
++```yaml
++project: frontier-model-framework
++run_profile: local
++artefacts_dir: artefacts
++
++profiles:
++  active: local
++  local:
++    auth: { provider: env }
++    inference:
++      provider: azure_openai
++      azure_openai:
++        endpoint: https://localhost.mock
++        deployment: gpt-4o-mini
++        api_version: 2024-02-15-preview
++  stage:
++    artefacts_dir: s3://my-bucket/fmf/stage
++    auth: { provider: azure_key_vault, azure_key_vault: { vault_url: https://stage.vault.azure.net/ } }
++    export: { default_sink: s3_results }
++  prod:
++    artefacts_dir: s3://my-bucket/fmf/prod
++    auth: { provider: aws_secrets, aws_secrets: { region: us-east-1 } }
++    inference:
++      provider: aws_bedrock
++      aws_bedrock:
++        region: us-east-1
++        model_id: anthropic.claude-3-haiku-20240307-v1:0
++```
++
++Environment overrides:
++```bash
++# Force prod profile & tweak temperature without editing YAML
++env FMF_PROFILE=prod FMF_INFERENCE__AWS_BEDROCK__TEMPERATURE=0.1 fmf run --chain chains/sample.yaml
++```
++
++## Adding new platform components
++
++### Connector
++1. Create `src/fmf/connectors/<name>.py` inheriting from `fmf.core.interfaces.BaseConnector`.
++2. Define a matching `ConnectorSpec` fragment (see `src/fmf/core/interfaces/models.py`).
++3. Register the factory in `src/fmf/connectors/__init__.py` and add unit tests with local fixtures under `tests/connectors/test_<name>.py`.
++
++### Inference provider
++1. Scaffold under `src/fmf/inference/providers/<provider>/` by copying the template introduced in `template_provider/provider.py`.
++2. Implement `_invoke_completion` (and optionally `stream`/`embed`) returning `Completion` objects; leverage `ModelSpec` metadata for validation.
++3. Wire provider into `build_llm_client` with config parsing + retry policies, and add contract tests with recorded fixtures.
++
++### Exporter
++1. Implement a subclass of `fmf.core.interfaces.BaseExporter` in `src/fmf/exporters/<name>.py`.
++2. Map config into an `ExportSpec` instance, ensure `RunContext` (run_id, profile) propagates to destination metadata.
++3. Register via `src/fmf/exporters/__init__.py` and extend smoke tests in `tests/test_exporters_smoke.py`.
++
++## Runnable recipe snippets
++- `examples/recipes/csv_quickstart.py` (dry-run by default, opt-in execution via `--execute`).
++- `examples/recipes/multimodal_walkthrough.py` for image prompts with RAG selectors.
++
++Each script relies on `FMF.from_env` to inherit config/secrets and creates artefacts under `artefacts/` when executed.
+diff --git a/docs/review/REFACTOR_PLAN.md b/docs/review/REFACTOR_PLAN.md
+new file mode 100644
+index 0000000..737986c
+--- /dev/null
++++ b/docs/review/REFACTOR_PLAN.md
+@@ -0,0 +1,14 @@
++# Refactor Plan (2 sprint outlook)
++
++1. **Codify configuration models (Sprint 1)**  
++   - *Acceptance criteria:* `load_config` returns fully-typed Pydantic models for connectors, processing, inference, export, and prompts. Legacy dict paths covered by compatibility shims. Unit tests verify env/--set precedence and profile overlays using the new models.
++2. **Connector resilience pass (Sprint 1)**  
++   - *Acceptance criteria:* Local/S3/SharePoint connectors inherit from `BaseConnector`, honour `RunContext`, and share retry/backoff + timeout policies. Streaming reads expose context managers that ensure closure; contract tests cover throttling scenarios.
++3. **Processing pipeline hardening (Sprint 1-2)**  
++   - *Acceptance criteria:* Processing outputs deterministic IDs (hash of `source_uri+offset`), large files are chunked lazily, and artefacts reuse `DocumentModel`/`ChunkModel`. CLI `process` reuses the same pipeline implementation as chain runs.
++4. **Inference capability matrix (Sprint 2)**  
++   - *Acceptance criteria:* `ModelSpec` metadata validated at startup; providers enforce modality/tool support and emit metrics (latency, tokens, retries). Streaming implemented for Azure & Bedrock with integration tests using recorded fixtures.
++5. **Exporter idempotency & schema controls (Sprint 2)**  
++   - *Acceptance criteria:* All exporters accept `RunContext`, support deterministic key selection, and document schema evolution. Redshift/Delta exporters include merge/upsert smoke tests using localstack/minio or duckdb backends.
++6. **DX polish & observability (Sprint 2)**  
++   - *Acceptance criteria:* CLI help text audited for consistency, `fmf keys test` surfaces profile and backend information, logs switched to timezone-aware timestamps, and tracing spans wrap connector/inference/export operations with optional OpenTelemetry integration.
+diff --git a/examples/recipes/csv_quickstart.py b/examples/recipes/csv_quickstart.py
+new file mode 100644
+index 0000000..1b188b1
+--- /dev/null
++++ b/examples/recipes/csv_quickstart.py
+@@ -0,0 +1,59 @@
++"""Quickstart recipe that demonstrates CSV analysis via the SDK facade.
++
++Run with:
++    python examples/recipes/csv_quickstart.py --input data/comments.csv --prompt "Summarise"
++"""
++
++from __future__ import annotations
++
++import argparse
++from pathlib import Path
++
++from fmf.sdk import FMF
++
++
++def build_recipe(input_path: str, prompt: str, *, text_col: str = "Comment", id_col: str = "ID") -> dict[str, object]:
++    """Return a declarative description of the intended run."""
++
++    return {
++        "input": input_path,
++        "prompt": prompt,
++        "text_col": text_col,
++        "id_col": id_col,
++    }
++
++
++def main() -> None:
++    parser = argparse.ArgumentParser(description="CSV quickstart using the FMF SDK")
++    parser.add_argument("--input", required=True, help="CSV file to analyse")
++    parser.add_argument("--prompt", required=True, help="Prompt text for summarisation")
++    parser.add_argument("--config", default="fmf.yaml", help="Config file to load")
++    parser.add_argument("--text-col", default="Comment")
++    parser.add_argument("--id-col", default="ID")
++    parser.add_argument("--execute", action="store_true", help="Execute the run instead of printing plan")
++    args = parser.parse_args()
++
++    recipe = build_recipe(args.input, args.prompt, text_col=args.text_col, id_col=args.id_col)
++
++    if not args.execute:
++        print("[dry-run] Recipe plan:")
++        for key, value in recipe.items():
++            print(f"  {key}: {value}")
++        print("Pass --execute to run csv_analyse() against the live connector.")
++        return
++
++    fmf = FMF.from_env(args.config)
++    artefact_dir = Path("artefacts")
++    artefact_dir.mkdir(parents=True, exist_ok=True)
++    fmf.csv_analyse(
++        input=args.input,
++        text_col=args.text_col,
++        id_col=args.id_col,
++        prompt=args.prompt,
++        save_csv=str(artefact_dir / "csv_quickstart.csv"),
++        return_records=False,
++    )
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/examples/recipes/multimodal_walkthrough.py b/examples/recipes/multimodal_walkthrough.py
+new file mode 100644
+index 0000000..73bf64f
+--- /dev/null
++++ b/examples/recipes/multimodal_walkthrough.py
+@@ -0,0 +1,45 @@
++"""Demonstrates a multimodal chain invocation with optional retrieval."""
++
++from __future__ import annotations
++
++import argparse
++from pathlib import Path
++
++from fmf.sdk import FMF
++
++
++def build_recipe(image_select: list[str] | None = None) -> dict[str, object]:
++    return {
++        "connector": "local_docs",
++        "select": image_select or ["**/*.{png,jpg,jpeg}"],
++        "prompt": "Describe the visual content in two concise bullets.",
++    }
++
++
++def main() -> None:
++    parser = argparse.ArgumentParser(description="Multimodal analysis walkthrough")
++    parser.add_argument("--select", action="append", default=None, help="Glob selector for images")
++    parser.add_argument("--config", default="fmf.yaml")
++    parser.add_argument("--execute", action="store_true", help="Execute SDK call instead of dry-run")
++    args = parser.parse_args()
++
++    recipe = build_recipe(args.select)
++    if not args.execute:
++        print("[dry-run] Multimodal plan:")
++        for key, value in recipe.items():
++            print(f"  {key}: {value}")
++        print("Pass --execute to run images.analyse via the SDK.")
++        return
++
++    fmf = FMF.from_env(args.config)
++    artefact_dir = Path("artefacts")
++    artefact_dir.mkdir(parents=True, exist_ok=True)
++    fmf.images_analyse(
++        select=args.select,
++        prompt=recipe["prompt"],
++        save_jsonl=str(artefact_dir / "multimodal_walkthrough.jsonl"),
++    )
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/pyproject.toml b/pyproject.toml
+index 6441e0c..92dc8f3 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -38,3 +38,9 @@ excel = [
+ parquet = [
+   "pyarrow>=14,<17",
+ ]
++test = [
++  "pytest>=8,<9",
++  "pytest-cov>=5,<6",
++  "pyarrow>=14,<17",
++  "moto[s3]>=5,<6",
++]
+diff --git a/src/fmf/chain/runner.py b/src/fmf/chain/runner.py
+index 7c5fcdd..8980590 100644
+--- a/src/fmf/chain/runner.py
++++ b/src/fmf/chain/runner.py
+@@ -230,13 +230,27 @@ def _validate_min_schema(obj: Any, schema: Dict[str, Any] | None) -> Tuple[bool,
+     return True, None
+ 
+ 
+-def run_chain(chain_path: str, *, fmf_config_path: str = "fmf.yaml") -> Dict[str, Any]:
++def run_chain(
++    chain_path: str,
++    *,
++    fmf_config_path: str = "fmf.yaml",
++    set_overrides: list[str] | None = None,
++) -> Dict[str, Any]:
+     chain = load_chain(chain_path)
+     # Delegate to the core execution with a loaded ChainConfig
+-    return _run_chain_loaded(chain, fmf_config_path=fmf_config_path)
++    return _run_chain_loaded(
++        chain,
++        fmf_config_path=fmf_config_path,
++        set_overrides=set_overrides,
++    )
+ 
+ 
+-def run_chain_config(conf: ChainConfig | Dict[str, Any], *, fmf_config_path: str = "fmf.yaml") -> Dict[str, Any]:
++def run_chain_config(
++    conf: ChainConfig | Dict[str, Any],
++    *,
++    fmf_config_path: str = "fmf.yaml",
++    set_overrides: list[str] | None = None,
++) -> Dict[str, Any]:
+     """Programmatic runner that accepts a ChainConfig or a plain dict.
+ 
+     For compatibility and to avoid duplicating run logic, this function
+@@ -279,9 +293,14 @@ def run_chain_config(conf: ChainConfig | Dict[str, Any], *, fmf_config_path: str
+         path = os.path.join(tdir, "chain.yaml")
+         with open(path, "w", encoding="utf-8") as f:
+             _yaml.safe_dump(data, f, sort_keys=False)
+-        return run_chain(path, fmf_config_path=fmf_config_path)
+-def _run_chain_loaded(chain: ChainConfig, *, fmf_config_path: str) -> Dict[str, Any]:
+-    cfg = load_config(fmf_config_path)
++        return run_chain(path, fmf_config_path=fmf_config_path, set_overrides=set_overrides)
++def _run_chain_loaded(
++    chain: ChainConfig,
++    *,
++    fmf_config_path: str,
++    set_overrides: list[str] | None = None,
++) -> Dict[str, Any]:
++    cfg = load_config(fmf_config_path, set_overrides=set_overrides)
+     # Reset global metrics for a clean run record
+     try:
+         _metrics.clear()
+diff --git a/src/fmf/cli.py b/src/fmf/cli.py
+index 6e7fcba..ae0cb02 100644
+--- a/src/fmf/cli.py
++++ b/src/fmf/cli.py
+@@ -34,13 +34,21 @@ def build_parser() -> argparse.ArgumentParser:
+     )
+ 
+     subparsers = parser.add_subparsers(dest="command", metavar="{keys,connect,process,prompt,run,infer,export}")
+-    # Extend metavar to include sdk wrappers
+-    subparsers.metavar = "{keys,connect,process,prompt,run,infer,export,csv,text,images}"
++    # Extend metavar to include sdk wrappers and diagnostics for --help readability
++    subparsers.metavar = "{keys,connect,process,prompt,run,infer,export,csv,text,images,doctor,recipe}"
+ 
+     # keys subcommands
+-    keys = subparsers.add_parser("keys", help="Manage/test secret resolution")
++    keys = subparsers.add_parser(
++        "keys",
++        help="Manage/test secret resolution",
++        description="Secret resolution helpers for the active run profile.",
++    )
+     keys_sub = keys.add_subparsers(dest="keys_cmd")
+-    keys_test = keys_sub.add_parser("test", help="Verify secret resolution for given names")
++    keys_test = keys_sub.add_parser(
++        "test",
++        help="Verify secret resolution for logical secret names",
++        description="Attempts to resolve the provided secrets and redacts values in output.",
++    )
+     keys_test.add_argument("names", nargs="*", help="Logical secret names to resolve (e.g., OPENAI_API_KEY)")
+     keys_test.add_argument(
+         "-c", "--config", default="fmf.yaml", help="Path to config YAML (default: fmf.yaml)"
+@@ -55,7 +63,12 @@ def build_parser() -> argparse.ArgumentParser:
+     # connect subcommands
+     connect = subparsers.add_parser("connect", help="List and interact with data connectors")
+     connect_sub = connect.add_subparsers(dest="connect_cmd")
+-    connect_ls = connect_sub.add_parser("ls", help="List resources for a configured connector")
++    connect_ls = connect_sub.add_parser(
++        "ls",
++        help="List resources for a configured connector",
++        aliases=["list"],
++        description="Enumerate resources to confirm connector configuration",
++    )
+     connect_ls.add_argument("name", help="Connector name from config")
+     connect_ls.add_argument(
+         "--select",
+@@ -85,9 +98,20 @@ def build_parser() -> argparse.ArgumentParser:
+     )
+ 
+     # run chain
+-    run_cmd = subparsers.add_parser("run", help="Execute a chain from YAML")
++    run_cmd = subparsers.add_parser(
++        "run",
++        help="Execute a chain from YAML",
++        description="Run a declarative chain file and persist artefacts",
++    )
+     run_cmd.add_argument("--chain", required=True, help="Path to chain YAML")
+     run_cmd.add_argument("-c", "--config", default="fmf.yaml", help="Path to config YAML")
++    run_cmd.add_argument(
++        "--set",
++        dest="set_overrides",
++        action="append",
++        default=[],
++        help="Override config values: key.path=value (repeatable)",
++    )
+     process.add_argument("-c", "--config", default="fmf.yaml", help="Path to config YAML")
+     process.add_argument(
+         "--set",
+@@ -391,7 +415,11 @@ def _cmd_export(args: argparse.Namespace) -> int:
+             except Exception:
+                 print("Parquet input requires optional dependency 'pyarrow'.", file=sys.stderr)
+                 raise SystemExit(2)
+-            table = pq.read_table(path)
++            try:
++                table = pq.read_table(path)
++            except Exception as exc:
++                print(f"Failed to read Parquet file {path}: {exc}", file=sys.stderr)
++                raise SystemExit(2)
+             return table.to_pylist()  # list of dicts
+         raise SystemExit(2)
+ 
+@@ -439,7 +467,7 @@ def main(argv: list[str] | None = None) -> int:
+ 
+     if args.command == "keys" and getattr(args, "keys_cmd", None) == "test":
+         return _cmd_keys_test(args)
+-    if args.command == "connect" and getattr(args, "connect_cmd", None) == "ls":
++    if args.command == "connect" and getattr(args, "connect_cmd", None) in {"ls", "list"}:
+         return _cmd_connect_ls(args)
+     if args.command == "process":
+         return _cmd_process(args)
+@@ -447,7 +475,12 @@ def main(argv: list[str] | None = None) -> int:
+         return _cmd_infer(args)
+     if args.command == "run":
+         # Delegate directly to chain runner
+-        res = run_chain(args.chain, fmf_config_path=args.config)
++        overrides = getattr(args, "set_overrides", None)
++        res = run_chain(
++            args.chain,
++            fmf_config_path=args.config,
++            set_overrides=overrides or None,
++        )
+         print(f"run_id={res['run_id']}")
+         print(f"run_dir={res['run_dir']}")
+         return 0
+diff --git a/src/fmf/core/__init__.py b/src/fmf/core/__init__.py
+new file mode 100644
+index 0000000..affa95e
+--- /dev/null
++++ b/src/fmf/core/__init__.py
+@@ -0,0 +1,6 @@
++"""Core abstractions shared across Frontier Model Framework layers."""
++
++from . import interfaces as interfaces
++from .interfaces import *  # noqa: F401,F403
++
++__all__ = interfaces.__all__
+diff --git a/src/fmf/core/interfaces/__init__.py b/src/fmf/core/interfaces/__init__.py
+new file mode 100644
+index 0000000..3cb3451
+--- /dev/null
++++ b/src/fmf/core/interfaces/__init__.py
+@@ -0,0 +1,44 @@
++"""Common interface definitions for the Frontier Model Framework core layers.
++
++These interfaces provide a lightweight contract for new connectors, processors,
++providers, and exporters. Existing concrete implementations can progressively
++adopt them without breaking backwards compatibility.
++"""
++
++from .models import (
++    ConnectorSpec,
++    DocumentModel,
++    ChunkModel,
++    ModelSpec,
++    ExportSpec,
++    RunContext,
++)
++from .connectors_base import BaseConnector
++from .processors_base import BaseProcessor, ProcessorRequest, ProcessorResult
++from .providers_base import (
++    BaseProvider,
++    CompletionRequest,
++    CompletionResponse,
++    EmbeddingRequest,
++    EmbeddingResponse,
++)
++from .exporters_base import BaseExporter
++
++__all__ = [
++    "BaseConnector",
++    "BaseProcessor",
++    "ProcessorRequest",
++    "ProcessorResult",
++    "BaseProvider",
++    "CompletionRequest",
++    "CompletionResponse",
++    "EmbeddingRequest",
++    "EmbeddingResponse",
++    "BaseExporter",
++    "ConnectorSpec",
++    "DocumentModel",
++    "ChunkModel",
++    "ModelSpec",
++    "ExportSpec",
++    "RunContext",
++]
+diff --git a/src/fmf/core/interfaces/connectors_base.py b/src/fmf/core/interfaces/connectors_base.py
+new file mode 100644
+index 0000000..d126ff4
+--- /dev/null
++++ b/src/fmf/core/interfaces/connectors_base.py
+@@ -0,0 +1,59 @@
++from __future__ import annotations
++
++from abc import ABC, abstractmethod
++from typing import Iterable, IO
++
++from ...connectors.base import ConnectorError, ResourceInfo, ResourceRef
++from .models import ConnectorSpec, RunContext
++
++
++class BaseConnector(ABC):
++    """Abstract base class for FMF connectors with a consistent contract.
++
++    Concrete implementations SHOULD inherit from this class (or continue to use
++    the legacy Protocol in ``fmf.connectors.base`` until migrated). The new
++    interface adds optional run context plumbing so that connectors can respond
++    to profile-specific overrides (e.g., auth, throttling).
++    """
++
++    spec: ConnectorSpec
++
++    def __init__(self, spec: ConnectorSpec) -> None:
++        self.spec = spec
++        self.name = spec.name
++
++    # Existing connectors can transition to this base class alongside ConnectorSpec adoption.
++
++    @abstractmethod
++    def list(
++        self,
++        *,
++        selector: list[str] | None = None,
++        context: RunContext | None = None,
++    ) -> Iterable[ResourceRef]:
++        """Yield resources that match the optional selector for the current connector."""
++
++    @abstractmethod
++    def open(
++        self,
++        ref: ResourceRef,
++        *,
++        mode: str = "rb",
++        context: RunContext | None = None,
++    ) -> IO[bytes]:
++        """Open a streaming handle for the referenced resource."""
++
++    @abstractmethod
++    def info(self, ref: ResourceRef, *, context: RunContext | None = None) -> ResourceInfo:
++        """Return metadata for the given resource."""
++
++    def close(self) -> None:  # pragma: no cover - optional hook
++        """Optional clean-up hook (filesystems may not need it)."""
++
++    def raise_error(self, message: str) -> None:
++        """Helper to raise connector-specific errors with consistent type."""
++
++        raise ConnectorError(f"{self.name}: {message}")
++
++
++__all__ = ["BaseConnector"]
+diff --git a/src/fmf/core/interfaces/exporters_base.py b/src/fmf/core/interfaces/exporters_base.py
+new file mode 100644
+index 0000000..a52c847
+--- /dev/null
++++ b/src/fmf/core/interfaces/exporters_base.py
+@@ -0,0 +1,34 @@
++from __future__ import annotations
++
++from abc import ABC, abstractmethod
++from typing import Iterable
++
++from ...exporters.base import ExportError, ExportResult
++from .models import ExportSpec, RunContext
++
++
++class BaseExporter(ABC):
++    """Abstract exporter with a shared spec + context contract."""
++
++    spec: ExportSpec
++
++    def __init__(self, spec: ExportSpec) -> None:
++        self.spec = spec
++
++    @abstractmethod
++    def write(
++        self,
++        payload: Iterable[dict[str, object]] | bytes | str,
++        *,
++        context: RunContext | None = None,
++    ) -> ExportResult:
++        """Persist records or a serialised payload."""
++
++    def finalize(self) -> None:  # pragma: no cover - optional override
++        """Flush buffers or close connections."""
++
++    def raise_error(self, message: str) -> None:
++        raise ExportError(f"{self.spec.name}: {message}")
++
++
++__all__ = ["BaseExporter"]
+diff --git a/src/fmf/core/interfaces/models.py b/src/fmf/core/interfaces/models.py
+new file mode 100644
+index 0000000..7188711
+--- /dev/null
++++ b/src/fmf/core/interfaces/models.py
+@@ -0,0 +1,129 @@
++from __future__ import annotations
++
++import uuid
++from typing import Any, Dict, List, Literal, Optional
++
++from pydantic import BaseModel, Field
++
++
++class RunContext(BaseModel):
++    """Lightweight context passed between layers for observability and profiles."""
++
++    run_id: str | None = None
++    profile: str | None = None
++    tags: dict[str, str] = Field(default_factory=dict)
++    config_hash: str | None = None
++
++
++class BlobModel(BaseModel):
++    """Binary artefact attached to a document (e.g. image bytes)."""
++
++    id: str = Field(default_factory=lambda: f"blob_{uuid.uuid4().hex[:8]}")
++    media_type: str
++    data: bytes | None = None
++    metadata: dict[str, Any] = Field(default_factory=dict)
++
++
++class DocumentModel(BaseModel):
++    """Normalized document emitted by the processing layer."""
++
++    id: str = Field(default_factory=lambda: f"doc_{uuid.uuid4().hex[:8]}")
++    source_uri: str
++    text: str | None = None
++    blobs: list[BlobModel] = Field(default_factory=list)
++    metadata: dict[str, Any] = Field(default_factory=dict)
++
++
++class ChunkModel(BaseModel):
++    """Token-aware chunk derived from a document."""
++
++    id: str = Field(default_factory=lambda: f"chunk_{uuid.uuid4().hex[:8]}")
++    doc_id: str
++    text: str
++    tokens_estimate: int | None = None
++    metadata: dict[str, Any] = Field(default_factory=dict)
++
++
++class ConnectorSelectors(BaseModel):
++    include: list[str] = Field(default_factory=list)
++    exclude: list[str] = Field(default_factory=list)
++
++
++class ConnectorSpec(BaseModel):
++    """Configuration required to construct a connector."""
++
++    name: str
++    type: str
++    description: str | None = None
++    selectors: ConnectorSelectors = Field(default_factory=ConnectorSelectors)
++    options: dict[str, Any] = Field(default_factory=dict)
++    auth_profile: str | None = None
++    metadata: dict[str, Any] = Field(default_factory=dict)
++
++
++class ProcessingSpec(BaseModel):
++    """Processing configuration captured for reproducibility."""
++
++    name: str
++    strategy: Literal["text", "table", "image", "audio", "custom"]
++    options: dict[str, Any] = Field(default_factory=dict)
++
++
++class ChatMessageModel(BaseModel):
++    role: Literal["system", "user", "assistant", "tool"]
++    content: Any
++
++
++class StreamingConfig(BaseModel):
++    enabled: bool = False
++    chunk_size_tokens: int | None = None
++
++
++class ModelPricing(BaseModel):
++    unit: Literal["1K_tokens", "image", "request", "invocation", "custom"] = "1K_tokens"
++    currency: Literal["USD", "credits", "custom"] = "USD"
++    input_cost: float | None = None
++    output_cost: float | None = None
++    notes: str | None = None
++
++
++class ModelSpec(BaseModel):
++    """Provider-agnostic description of a model deployment."""
++
++    provider: str
++    model: str
++    modality: Literal["text", "multimodal", "embedding", "audio", "vision"] = "text"
++    tasks: list[str] = Field(default_factory=list)
++    capabilities: list[str] = Field(default_factory=list)
++    default_params: dict[str, Any] = Field(default_factory=dict)
++    streaming: StreamingConfig = Field(default_factory=StreamingConfig)
++    pricing: ModelPricing | None = None
++    extra: dict[str, Any] = Field(default_factory=dict)
++
++
++class ExportSpec(BaseModel):
++    """Standardised exporter configuration."""
++
++    name: str
++    type: str
++    destination: str | None = None
++    format: Literal["jsonl", "csv", "parquet", "delta", "excel", "native", "custom"] = "jsonl"
++    mode: Literal["append", "upsert", "overwrite"] = "append"
++    key_fields: list[str] | None = None
++    options: dict[str, Any] = Field(default_factory=dict)
++    metadata: dict[str, Any] = Field(default_factory=dict)
++
++
++__all__ = [
++    "BlobModel",
++    "DocumentModel",
++    "ChunkModel",
++    "ConnectorSpec",
++    "ProcessingSpec",
++    "ChatMessageModel",
++    "StreamingConfig",
++    "ModelPricing",
++    "ModelSpec",
++    "ExportSpec",
++    "RunContext",
++]
+diff --git a/src/fmf/core/interfaces/processors_base.py b/src/fmf/core/interfaces/processors_base.py
+new file mode 100644
+index 0000000..2e3f535
+--- /dev/null
++++ b/src/fmf/core/interfaces/processors_base.py
+@@ -0,0 +1,45 @@
++from __future__ import annotations
++
++from abc import ABC, abstractmethod
++from typing import Iterable
++
++from pydantic import BaseModel, Field
++
++from .models import ChunkModel, DocumentModel, ProcessingSpec, RunContext
++
++
++class ProcessorRequest(BaseModel):
++    """Input contract for processors."""
++
++    document: DocumentModel
++    context: RunContext | None = None
++    spec: ProcessingSpec | None = None
++
++
++class ProcessorResult(BaseModel):
++    """Output contract for processors."""
++
++    document: DocumentModel
++    chunks: list[ChunkModel] = Field(default_factory=list)
++    artefacts: list[str] = Field(default_factory=list)
++
++
++class BaseProcessor(ABC):
++    """Abstract processor with a uniform entry point."""
++
++    name: str
++
++    def __init__(self, name: str) -> None:
++        self.name = name
++
++    @abstractmethod
++    def process(self, request: ProcessorRequest) -> ProcessorResult:
++        """Process an input document into zero or more chunks."""
++
++    def expand_documents(self, request: ProcessorRequest) -> Iterable[DocumentModel]:  # pragma: no cover - optional override
++        """Optional hook for processors that yield additional documents (e.g., tables)."""
++
++        yield request.document
++
++
++__all__ = ["BaseProcessor", "ProcessorRequest", "ProcessorResult"]
+diff --git a/src/fmf/core/interfaces/providers_base.py b/src/fmf/core/interfaces/providers_base.py
+new file mode 100644
+index 0000000..6905158
+--- /dev/null
++++ b/src/fmf/core/interfaces/providers_base.py
+@@ -0,0 +1,95 @@
++from __future__ import annotations
++
++from abc import ABC, abstractmethod
++from typing import Any, Callable
++
++from pydantic import BaseModel, Field
++
++from ...inference.base_client import Completion
++from .models import ChatMessageModel, ModelSpec, RunContext
++
++
++class CompletionRequest(BaseModel):
++    """Request payload for a text or multimodal completion."""
++
++    messages: list[ChatMessageModel]
++    params: dict[str, Any] = Field(default_factory=dict)
++    context: RunContext | None = None
++    metadata: dict[str, Any] = Field(default_factory=dict)
++
++
++class CompletionResponse(BaseModel):
++    """Normalised completion response."""
++
++    text: str
++    raw: Any | None = None
++    stop_reason: str | None = None
++    prompt_tokens: int | None = None
++    completion_tokens: int | None = None
++    model: str | None = None
++
++    @classmethod
++    def from_completion(cls, completion: Completion, *, raw: Any | None = None) -> "CompletionResponse":
++        return cls(
++            text=completion.text,
++            raw=raw or completion,
++            stop_reason=completion.stop_reason,
++            prompt_tokens=completion.prompt_tokens,
++            completion_tokens=completion.completion_tokens,
++            model=completion.model,
++        )
++
++
++class EmbeddingRequest(BaseModel):
++    inputs: list[str]
++    params: dict[str, Any] = Field(default_factory=dict)
++    context: RunContext | None = None
++
++
++class EmbeddingResponse(BaseModel):
++    vectors: list[list[float]]
++    model: str | None = None
++    usage: dict[str, Any] = Field(default_factory=dict)
++
++
++class BaseProvider(ABC):
++    """Abstract provider facade used by the unified inference layer."""
++
++    spec: ModelSpec
++
++    def __init__(self, spec: ModelSpec) -> None:
++        self.spec = spec
++
++    @abstractmethod
++    def complete(self, request: CompletionRequest) -> CompletionResponse:
++        """Execute a non-streaming completion."""
++
++    def stream(
++        self,
++        request: CompletionRequest,
++        on_token: Callable[[str], None],
++    ) -> CompletionResponse:  # pragma: no cover - default fallback
++        """Optional streaming handler; falls back to non-streaming invocation."""
++
++        response = self.complete(request)
++        if response.text:
++            on_token(response.text)
++        return response
++
++    def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:  # pragma: no cover - optional override
++        raise NotImplementedError("Provider does not implement embeddings")
++
++    def supports_streaming(self) -> bool:
++        return bool(self.spec.streaming.enabled)
++
++    def supports_embeddings(self) -> bool:
++        return "embeddings" in {cap.lower() for cap in self.spec.capabilities}
++
++
++__all__ = [
++    "BaseProvider",
++    "CompletionRequest",
++    "CompletionResponse",
++    "EmbeddingRequest",
++    "EmbeddingResponse",
++]
+diff --git a/src/fmf/inference/providers/template_provider/__init__.py b/src/fmf/inference/providers/template_provider/__init__.py
+new file mode 100644
+index 0000000..d1bd799
+--- /dev/null
++++ b/src/fmf/inference/providers/template_provider/__init__.py
+@@ -0,0 +1,5 @@
++"""Reference provider template for new inference integrations."""
++
++from .provider import TemplateProvider
++
++__all__ = ["TemplateProvider"]
+diff --git a/src/fmf/inference/providers/template_provider/provider.py b/src/fmf/inference/providers/template_provider/provider.py
+new file mode 100644
+index 0000000..ccaa5d9
+--- /dev/null
++++ b/src/fmf/inference/providers/template_provider/provider.py
+@@ -0,0 +1,50 @@
++from __future__ import annotations
++
++from typing import Any
++
++from ....core.interfaces import (
++    BaseProvider,
++    CompletionRequest,
++    CompletionResponse,
++    EmbeddingRequest,
++    EmbeddingResponse,
++    ModelSpec,
++)
++from ....inference.base_client import Completion, with_retries
++
++
++class TemplateProvider(BaseProvider):
++    """Skeleton adapter showing the minimum hooks for a new provider."""
++
++    def __init__(self, spec: ModelSpec, *, client: Any | None = None) -> None:
++        super().__init__(spec)
++        # Store any provider-specific SDK client for reuse by subclasses.
++        self._client = client
++
++    def _invoke_completion(self, request: CompletionRequest) -> Completion:
++        """Translate the unified request into the provider SDK call.
++
++        Replace the NotImplementedError with the provider-specific call. The
++        method MUST return an ``fmf.inference.base_client.Completion`` instance.
++        """
++
++        raise NotImplementedError("TemplateProvider requires provider-specific implementation")
++
++    def complete(self, request: CompletionRequest) -> CompletionResponse:
++        completion = with_retries(lambda: self._invoke_completion(request))
++        return CompletionResponse.from_completion(completion)
++
++    def stream(self, request: CompletionRequest, on_token) -> CompletionResponse:
++        if not self.supports_streaming():
++            return super().stream(request, on_token)
++        completion = with_retries(lambda: self._invoke_completion(request))
++        text = completion.text or ""
++        for token in text.split():
++            on_token(token)
++        return CompletionResponse.from_completion(completion)
++
++    def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
++        raise NotImplementedError("TemplateProvider does not implement embeddings yet")
++
++    def supports_streaming(self) -> bool:
++        return bool(self.spec.streaming.enabled)
+diff --git a/tests/fixtures/csv/sample_comments.csv b/tests/fixtures/csv/sample_comments.csv
+new file mode 100644
+index 0000000..f11ce35
+--- /dev/null
++++ b/tests/fixtures/csv/sample_comments.csv
+@@ -0,0 +1,3 @@
++id,comment
++1,"Great service, thanks!"
++2,"Consider adding OCR to image pipeline."
+diff --git a/tests/fixtures/images/sample_pixel.png b/tests/fixtures/images/sample_pixel.png
+new file mode 100644
+index 0000000..d181015
+Binary files /dev/null and b/tests/fixtures/images/sample_pixel.png differ
+diff --git a/tests/fixtures/parquet/sample_comments.parquet b/tests/fixtures/parquet/sample_comments.parquet
+new file mode 100644
+index 0000000..052a196
+Binary files /dev/null and b/tests/fixtures/parquet/sample_comments.parquet differ
+diff --git a/tests/fixtures/text/sample_note.txt b/tests/fixtures/text/sample_note.txt
+new file mode 100644
+index 0000000..ad5aeb1
+--- /dev/null
++++ b/tests/fixtures/text/sample_note.txt
+@@ -0,0 +1,3 @@
++Frontier Model Framework sample note.
++- Source: fixtures
++- Purpose: smoke tests demonstrate loader entry points.
+diff --git a/tests/test_chain_outputs_as_parquet.py b/tests/test_chain_outputs_as_parquet.py
+index a52f82e..0c3beff 100644
+--- a/tests/test_chain_outputs_as_parquet.py
++++ b/tests/test_chain_outputs_as_parquet.py
+@@ -66,12 +66,19 @@ class TestChainOutputsAsParquet(unittest.TestCase):
+         runner_mod.build_llm_client = lambda cfg: DummyClient()  # type: ignore
+         from fmf.chain.runner import run_chain
+ 
+-        with self.assertRaises(RuntimeError):
+-            run_chain(chain_path, fmf_config_path=cfg_path)
++        import importlib.util
++
++        has_pyarrow = importlib.util.find_spec("pyarrow") is not None
++        if has_pyarrow:
++            res = run_chain(chain_path, fmf_config_path=cfg_path)
++            out_dir = os.path.join(root, "out", res["run_id"])
++            self.assertTrue(os.path.exists(out_dir))
++        else:
++            with self.assertRaises(RuntimeError):
++                run_chain(chain_path, fmf_config_path=cfg_path)
+ 
+         dtemp.cleanup()
+ 
+ 
+ if __name__ == "__main__":
+     unittest.main()
+-
+diff --git a/tests/test_cli_export_records.py b/tests/test_cli_export_records.py
+index d379806..20ed58c 100644
+--- a/tests/test_cli_export_records.py
++++ b/tests/test_cli_export_records.py
+@@ -3,7 +3,6 @@ import os
+ import sys
+ import tempfile
+ import textwrap
+-import types
+ import unittest
+ 
+ 
+@@ -23,6 +22,7 @@ class TestCliExportRecords(unittest.TestCase):
+ 
+     def test_cli_export_to_dynamodb_from_jsonl(self):
+         import fmf.cli as cli
++        from unittest.mock import patch
+ 
+         # mock boto3 used by exporters.dynamodb
+         out = {"batches": []}
+@@ -32,34 +32,35 @@ class TestCliExportRecords(unittest.TestCase):
+                 out["batches"].append(kwargs)
+                 return {"UnprocessedItems": {}}
+ 
+-        sys.modules["boto3"] = types.SimpleNamespace(client=lambda name, region_name=None: DDB())  # type: ignore
+-
+         tmpdir = tempfile.TemporaryDirectory()
+-        run_id = "r123"
+-        run_dir = os.path.join(tmpdir.name, run_id)
+-        os.makedirs(run_dir, exist_ok=True)
+-        input_path = os.path.join(run_dir, "outputs.jsonl")
+-        with open(input_path, "w", encoding="utf-8") as f:
+-            f.write(json.dumps({"id": 1, "v": "a"}) + "\n")
+-            f.write(json.dumps({"id": 2, "v": "b"}) + "\n")
+-
+-        cfg = self._write_yaml(
+-            """
+-            project: fmf
+-            export:
+-              sinks:
+-                - name: ddb
+-                  type: dynamodb
+-                  table: tbl
+-                  region: us-east-1
+-            """
+-        )
+-
+-        rc = cli.main(["export", "--sink", "ddb", "--input", input_path, "-c", cfg])
+-        self.assertEqual(rc, 0)
+-        self.assertTrue(out["batches"])  # batches sent
+-
+-        tmpdir.cleanup()
++        try:
++            run_id = "r123"
++            run_dir = os.path.join(tmpdir.name, run_id)
++            os.makedirs(run_dir, exist_ok=True)
++            input_path = os.path.join(run_dir, "outputs.jsonl")
++            with open(input_path, "w", encoding="utf-8") as f:
++                f.write(json.dumps({"id": 1, "v": "a"}) + "\n")
++                f.write(json.dumps({"id": 2, "v": "b"}) + "\n")
++
++            cfg = self._write_yaml(
++                """
++                project: fmf
++                export:
++                  sinks:
++                    - name: ddb
++                      type: dynamodb
++                      table: tbl
++                      region: us-east-1
++                """
++            )
++
++            with patch("fmf.exporters.dynamodb.DynamoDBExporter._ddb", return_value=DDB()):
++                rc = cli.main(["export", "--sink", "ddb", "--input", input_path, "-c", cfg])
++
++            self.assertEqual(rc, 0)
++            self.assertTrue(out["batches"])  # batches sent
++        finally:
++            tmpdir.cleanup()
+ 
+     def test_cli_export_parquet_input_without_pyarrow(self):
+         import fmf.cli as cli
+@@ -97,4 +98,3 @@ class TestCliExportRecords(unittest.TestCase):
+ 
+ if __name__ == "__main__":
+     unittest.main()
+-
+diff --git a/tests/test_cli_run.py b/tests/test_cli_run.py
+index 7b655eb..25107dc 100644
+--- a/tests/test_cli_run.py
++++ b/tests/test_cli_run.py
+@@ -28,7 +28,7 @@ class TestCliRun(unittest.TestCase):
+ 
+         called = {"ok": False}
+ 
+-        def fake_run_chain(path, *, fmf_config_path):
++        def fake_run_chain(path, *, fmf_config_path, set_overrides=None):
+             called["ok"] = True
+             return {"run_id": "r1", "run_dir": "/tmp/x"}
+ 
+diff --git a/tests/test_connectors_s3_moto.py b/tests/test_connectors_s3_moto.py
+index d680f20..5073192 100644
+--- a/tests/test_connectors_s3_moto.py
++++ b/tests/test_connectors_s3_moto.py
+@@ -12,8 +12,11 @@ class TestS3ConnectorWithMoto(unittest.TestCase):
+             sys.path.insert(0, src_path)
+ 
+     def test_list_and_open_with_moto(self):
++        import importlib
++
++        sys.modules.pop("boto3", None)
++        boto3 = importlib.import_module("boto3")
+         from moto import mock_aws
+-        import boto3
+         from fmf.connectors.s3 import S3Connector
+ 
+         with mock_aws():
+@@ -32,4 +35,3 @@ class TestS3ConnectorWithMoto(unittest.TestCase):
+ 
+ if __name__ == "__main__":
+     unittest.main()
+-
+diff --git a/tests/test_examples_smoke.py b/tests/test_examples_smoke.py
+new file mode 100644
+index 0000000..61e8975
+--- /dev/null
++++ b/tests/test_examples_smoke.py
+@@ -0,0 +1,77 @@
++from __future__ import annotations
++
++import sys
++import unittest
++from pathlib import Path
++
++REPO_ROOT = Path(__file__).resolve().parents[1]
++SRC_PATH = REPO_ROOT / "src"
++for candidate in (str(SRC_PATH), str(REPO_ROOT)):
++    if candidate not in sys.path:
++        sys.path.insert(0, candidate)
++
++from fmf.core.interfaces import (
++    BaseProvider,
++    CompletionRequest,
++    CompletionResponse,
++    ConnectorSpec,
++    DocumentModel,
++    ModelSpec,
++)
++from fmf.inference.base_client import Completion
++
++
++FIXTURES = Path(__file__).parent / "fixtures"
++
++
++class ExampleFixtureTests(unittest.TestCase):
++    def test_fixture_inventory(self) -> None:
++        self.assertTrue((FIXTURES / "csv" / "sample_comments.csv").exists())
++        self.assertTrue((FIXTURES / "text" / "sample_note.txt").exists())
++        self.assertTrue((FIXTURES / "images" / "sample_pixel.png").exists())
++        self.assertTrue((FIXTURES / "parquet" / "sample_comments.parquet").exists())
++
++    def test_model_and_connector_spec_defaults(self) -> None:
++        spec = ModelSpec(provider="unit-test", model="mock", modality="text")
++        self.assertFalse(spec.streaming.enabled)
++        self.assertEqual(spec.default_params, {})
++        connector_spec = ConnectorSpec(name="local_docs", type="local")
++        self.assertEqual(connector_spec.selectors.include, [])
++
++    def test_completion_response_helper_roundtrip(self) -> None:
++        completion = Completion(text="ok", model="mock", stop_reason="stop")
++        response = CompletionResponse.from_completion(completion)
++        self.assertEqual(response.text, "ok")
++        self.assertEqual(response.model, "mock")
++
++    def test_example_recipe_modules_importable(self) -> None:
++        from examples.recipes import csv_quickstart, multimodal_walkthrough
++
++        csv_plan = csv_quickstart.build_recipe("tests/fixtures/csv/sample_comments.csv", "Summarise")
++        self.assertEqual(csv_plan["prompt"], "Summarise")
++
++        mm_plan = multimodal_walkthrough.build_recipe()
++        self.assertIn("**/*.{png,jpg,jpeg}", mm_plan["select"])
++
++
++class _DummyProvider(BaseProvider):
++    def __init__(self) -> None:
++        super().__init__(ModelSpec(provider="dummy", model="stub"))
++
++    def complete(self, request: CompletionRequest) -> CompletionResponse:
++        text = request.messages[-1].content if request.messages else ""
++        completion = Completion(text=str(text))
++        return CompletionResponse.from_completion(completion)
++
++
++class ProviderContractTests(unittest.TestCase):
++    def test_dummy_provider_roundtrip(self) -> None:
++        provider = _DummyProvider()
++        document = DocumentModel(source_uri="tests://sample", text="hello world")
++        request = CompletionRequest(messages=[{"role": "user", "content": document.text}])
++        response = provider.complete(request)
++        self.assertEqual(response.text, "hello world")
++
++
++if __name__ == "__main__":  # pragma: no cover
++    unittest.main()

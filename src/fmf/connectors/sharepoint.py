@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import io
-import time
 import urllib.parse as _url
 from typing import IO, Iterable, Optional
 
+from ..core.interfaces import ConnectorSpec, ConnectorSelectors, RunContext
+from ..core.interfaces.connectors_base import BaseConnector
+from ..core.retry import default_predicate, retry_call
 from .base import ConnectorError, ResourceInfo, ResourceRef
 
 
-class SharePointConnector:
+class SharePointConnector(BaseConnector):
     """SharePoint connector using Microsoft Graph SDK.
 
     - Lists and downloads files from a given site + drive + root_path using Graph paths
@@ -19,18 +21,37 @@ class SharePointConnector:
     def __init__(
         self,
         *,
-        name: str,
-        site_url: str,
-        drive: str,
+        spec: ConnectorSpec | None = None,
+        name: str | None = None,
+        site_url: str | None = None,
+        drive: str | None = None,
         root_path: Optional[str] = None,
         auth_profile: Optional[str] = None,
     ) -> None:
-        self.name = name
-        self.site_url = site_url
-        self.drive = drive
-        self.root_path = (root_path or "").strip("/")
-        self.auth_profile = auth_profile
+        if spec is None:
+            if any(v is None for v in (name, site_url, drive)):
+                raise ValueError("SharePointConnector requires either a spec or name/site_url/drive parameters")
+            selectors = ConnectorSelectors(include=["**/*"], exclude=[])
+            spec = ConnectorSpec(
+                name=name,  # type: ignore[arg-type]
+                type="sharepoint",
+                selectors=selectors,
+                options={
+                    "site_url": site_url,
+                    "drive": drive,
+                    "root_path": root_path,
+                    "auth_profile": auth_profile,
+                },
+            )
+        super().__init__(spec)
+        options = spec.options
+        self.site_url = options.get("site_url", site_url)
+        self.drive = options.get("drive", drive)
+        self.root_path = (options.get("root_path", root_path) or "").strip("/")
+        self.auth_profile = options.get("auth_profile", auth_profile)
         self._client = None
+        self._include = list(spec.selectors.include or ["**/*"])
+        self._exclude = list(spec.selectors.exclude or [])
 
     def _client_or_raise(self):  # pragma: no cover - exercised via tests with monkeypatching
         if self._client is not None:
@@ -46,18 +67,10 @@ class SharePointConnector:
         self._client = GraphServiceClient(credential=cred, scopes=["https://graph.microsoft.com/.default"])  # type: ignore[call-arg]
         return self._client
 
-    def _retry(self, func, *args, **kwargs):
-        delay = 0.5
-        for _ in range(6):
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:  # naive throttling/backoff handler
-                status = getattr(e, "status_code", None) or getattr(getattr(e, "response", None), "status_code", None)
-                if status == 429:
-                    time.sleep(delay)
-                    delay = min(delay * 2, 8.0)
-                    continue
-                raise
+    @staticmethod
+    def _should_retry(exc: Exception) -> bool:
+        status = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
+        return status == 429 or default_predicate(exc)
 
     def _parse_site(self) -> tuple[str, str]:
         # https://contoso.sharepoint.com/sites/HR -> host, path
@@ -70,11 +83,11 @@ class SharePointConnector:
         client = self._client_or_raise()
         host, path = self._parse_site()
         # GET /sites/{host}:/{path}
-        site = self._retry(lambda: client.api(f"/sites/{host}:/{path}").get())
+        site = retry_call(lambda: client.api(f"/sites/{host}:/{path}").get(), should_retry=self._should_retry)
         site_id = site.get("id") if isinstance(site, dict) else getattr(site, "id", None)
         if not site_id:
             raise ConnectorError("Failed to resolve site id")
-        drives = self._retry(lambda: client.api(f"/sites/{site_id}/drives").get())
+        drives = retry_call(lambda: client.api(f"/sites/{site_id}/drives").get(), should_retry=self._should_retry)
         values = drives.get("value") if isinstance(drives, dict) else getattr(drives, "value", [])
         drive_id = None
         for d in values or []:
@@ -89,24 +102,35 @@ class SharePointConnector:
     def _graph_list_children(self, site_id: str, drive_id: str, rel_path: str) -> list[dict]:  # pragma: no cover - tests patch
         client = self._client_or_raise()
         if rel_path:
-            resp = self._retry(lambda: client.api(f"/sites/{site_id}/drives/{drive_id}/root:/{rel_path}:/children").get())
+            resp = retry_call(
+                lambda: client.api(f"/sites/{site_id}/drives/{drive_id}/root:/{rel_path}:/children").get(),
+                should_retry=self._should_retry,
+            )
         else:
-            resp = self._retry(lambda: client.api(f"/sites/{site_id}/drives/{drive_id}/root/children").get())
+            resp = retry_call(
+                lambda: client.api(f"/sites/{site_id}/drives/{drive_id}/root/children").get(),
+                should_retry=self._should_retry,
+            )
         return resp.get("value") if isinstance(resp, dict) else getattr(resp, "value", [])
 
     def _graph_download(self, site_id: str, drive_id: str, rel_path: str):  # pragma: no cover - tests patch
         client = self._client_or_raise()
-        return self._retry(lambda: client.api(f"/sites/{site_id}/drives/{drive_id}/root:/{rel_path}:/content").get())
+        return retry_call(lambda: client.api(f"/sites/{site_id}/drives/{drive_id}/root:/{rel_path}:/content").get(), should_retry=self._should_retry)
 
     def _graph_item_props(self, site_id: str, drive_id: str, rel_path: str):  # pragma: no cover - tests patch
         client = self._client_or_raise()
-        return self._retry(lambda: client.api(f"/sites/{site_id}/drives/{drive_id}/root:/{rel_path}").get())
+        return retry_call(lambda: client.api(f"/sites/{site_id}/drives/{drive_id}/root:/{rel_path}").get(), should_retry=self._should_retry)
 
-    def list(self, selector: list[str] | None = None) -> Iterable[ResourceRef]:
+    def list(
+        self,
+        *,
+        selector: list[str] | None = None,
+        context: RunContext | None = None,
+    ) -> Iterable[ResourceRef]:
         import fnmatch
 
         site_id, drive_id = self._resolve_ids()
-        patterns = selector or ["**/*"]
+        patterns = selector or self._include or ["**/*"]
 
         stack = [self.root_path]
         while stack:
@@ -125,9 +149,17 @@ class SharePointConnector:
                     for pat in patterns
                 ):
                     continue
+                if self._exclude and any(fnmatch.fnmatchcase(within, ex) for ex in self._exclude):
+                    continue
                 yield ResourceRef(id=within, uri=f"sharepoint:/sites/{site_id}/drives/{drive_id}/root:/{rel}", name=name)
 
-    def open(self, ref: ResourceRef, mode: str = "rb") -> IO[bytes]:
+    def open(
+        self,
+        ref: ResourceRef,
+        *,
+        mode: str = "rb",
+        context: RunContext | None = None,
+    ) -> IO[bytes]:
         if "r" not in mode:
             raise ConnectorError("SharePointConnector only supports reading")
         site_id, drive_id = self._resolve_ids()
@@ -137,7 +169,7 @@ class SharePointConnector:
             return io.BytesIO(data)
         return data
 
-    def info(self, ref: ResourceRef) -> ResourceInfo:
+    def info(self, ref: ResourceRef, *, context: RunContext | None = None) -> ResourceInfo:
         import datetime as dt
 
         site_id, drive_id = self._resolve_ids()

@@ -3,7 +3,6 @@ import os
 import sys
 import tempfile
 import textwrap
-import types
 import unittest
 
 
@@ -23,6 +22,7 @@ class TestCliExportRecords(unittest.TestCase):
 
     def test_cli_export_to_dynamodb_from_jsonl(self):
         import fmf.cli as cli
+        from unittest.mock import patch
 
         # mock boto3 used by exporters.dynamodb
         out = {"batches": []}
@@ -32,34 +32,35 @@ class TestCliExportRecords(unittest.TestCase):
                 out["batches"].append(kwargs)
                 return {"UnprocessedItems": {}}
 
-        sys.modules["boto3"] = types.SimpleNamespace(client=lambda name, region_name=None: DDB())  # type: ignore
-
         tmpdir = tempfile.TemporaryDirectory()
-        run_id = "r123"
-        run_dir = os.path.join(tmpdir.name, run_id)
-        os.makedirs(run_dir, exist_ok=True)
-        input_path = os.path.join(run_dir, "outputs.jsonl")
-        with open(input_path, "w", encoding="utf-8") as f:
-            f.write(json.dumps({"id": 1, "v": "a"}) + "\n")
-            f.write(json.dumps({"id": 2, "v": "b"}) + "\n")
+        try:
+            run_id = "r123"
+            run_dir = os.path.join(tmpdir.name, run_id)
+            os.makedirs(run_dir, exist_ok=True)
+            input_path = os.path.join(run_dir, "outputs.jsonl")
+            with open(input_path, "w", encoding="utf-8") as f:
+                f.write(json.dumps({"id": 1, "v": "a"}) + "\n")
+                f.write(json.dumps({"id": 2, "v": "b"}) + "\n")
 
-        cfg = self._write_yaml(
-            """
-            project: fmf
-            export:
-              sinks:
-                - name: ddb
-                  type: dynamodb
-                  table: tbl
-                  region: us-east-1
-            """
-        )
+            cfg = self._write_yaml(
+                """
+                project: fmf
+                export:
+                  sinks:
+                    - name: ddb
+                      type: dynamodb
+                      table: tbl
+                      region: us-east-1
+                """
+            )
 
-        rc = cli.main(["export", "--sink", "ddb", "--input", input_path, "-c", cfg])
-        self.assertEqual(rc, 0)
-        self.assertTrue(out["batches"])  # batches sent
+            with patch("fmf.exporters.dynamodb.DynamoDBExporter._ddb", return_value=DDB()):
+                rc = cli.main(["export", "--sink", "ddb", "--input", input_path, "-c", cfg])
 
-        tmpdir.cleanup()
+            self.assertEqual(rc, 0)
+            self.assertTrue(out["batches"])  # batches sent
+        finally:
+            tmpdir.cleanup()
 
     def test_cli_export_parquet_input_without_pyarrow(self):
         import fmf.cli as cli
@@ -97,4 +98,3 @@ class TestCliExportRecords(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

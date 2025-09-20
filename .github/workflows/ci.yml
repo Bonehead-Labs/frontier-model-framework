@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop, feature/* ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache uv downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-${{ matrix.python-version }}-
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install uv (preferred)
+        uses: astral-sh/setup-uv@v1
+        with:
+          version: 'latest'
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if command -v uv >/dev/null 2>&1; then
+            uv venv
+            . .venv/bin/activate
+            uv pip install --editable '.[aws,azure,test]' || uv pip install --editable '.[test]'
+            uv pip install ruff==0.5.7 mypy==1.10.0 coverage==7.5.4
+          else
+            python -m venv .venv
+            . .venv/bin/activate
+            python -m pip install --upgrade pip
+            pip install --editable '.[aws,azure,test]' || pip install --editable '.[test]'
+            pip install ruff==0.5.7 mypy==1.10.0 coverage==7.5.4
+          fi
+      - name: Ruff lint
+        shell: bash
+        run: |
+          set -euxo pipefail
+          . .venv/bin/activate
+          ruff check
+      - name: Mypy type-check
+        shell: bash
+        run: |
+          set -euxo pipefail
+          . .venv/bin/activate
+          mypy src/fmf/core src/fmf/inference
+      - name: Run tests with coverage
+        shell: bash
+        run: |
+          set -euxo pipefail
+          . .venv/bin/activate
+          coverage run -m pytest -q
+      - name: Coverage report
+        shell: bash
+        run: |
+          set -euxo pipefail
+          . .venv/bin/activate
+          coverage report -m --fail-under=70
+          coverage xml -o coverage.xml
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.python-version }}
+          path: coverage.xml

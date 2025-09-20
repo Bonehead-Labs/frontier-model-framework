@@ -1,41 +1,77 @@
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import gzip
+import hashlib
 import io
 import json
 import os
 import uuid
 from typing import Any, Iterable, List, Dict
 
+from ..core.ids import utc_now_iso
+from ..core.interfaces import ExportSpec
 from .base import ExportError, ExportResult
 
 
 def _now_date():
-    return dt.datetime.utcnow().strftime("%Y-%m-%d")
+    return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
 
 
 class S3Exporter:
+    """Write artefacts to Amazon S3.
+
+    ``append`` mode emits a new object per invocation (no guarantees about ordering). ``overwrite``
+    writes to a deterministic key via upload-to-temp + copy-to-final to achieve atomic swaps. Upsert
+    is currently unsupported and raises :class:`ExportError`.
+    """
     def __init__(
         self,
         *,
-        name: str,
-        bucket: str,
+        spec: ExportSpec | None = None,
+        name: str | None = None,
+        bucket: str | None = None,
         prefix: str | None = None,
-        format: str | None = "jsonl",
+        format: str | None = None,
         compression: str | None = None,
         partition_by: list[str] | None = None,
         sse: str | None = None,
         kms_key_id: str | None = None,
+        mode: str | None = None,
     ) -> None:
-        self.name = name
-        self.bucket = bucket
-        self.prefix = prefix or ""
-        self.format = (format or "jsonl").lower()
-        self.compression = (compression or "none").lower()
-        self.partition_by = partition_by or []
-        self.sse = sse
-        self.kms_key_id = kms_key_id
+        if spec is None:
+            if name is None:
+                name = "s3"
+            options = {
+                "bucket": bucket,
+                "prefix": prefix,
+                "compression": compression,
+                "partition_by": partition_by,
+                "sse": sse,
+                "kms_key_id": kms_key_id,
+            }
+            spec = ExportSpec(
+                name=name,
+                type="s3",
+                format=format or "jsonl",
+                write_mode=mode or "append",
+                options=options,
+            )
+        self.spec = spec
+        options = spec.options
+        self.name = spec.name
+        self.bucket = options.get("bucket") or bucket
+        if not self.bucket:
+            raise ExportError("S3 exporter requires a 'bucket' option")
+        self.prefix = (options.get("prefix") or prefix or "").lstrip("/")
+        self.format = (spec.format or format or "jsonl").lower()
+        self.compression = (options.get("compression") or compression or "none").lower()
+        self.partition_by = options.get("partition_by") or partition_by or []
+        self.sse = options.get("sse") or sse
+        self.kms_key_id = options.get("kms_key_id") or kms_key_id
+        self.write_mode = (spec.write_mode or mode or "append").lower()
+        self.key_fields = spec.key_fields or []
         self._client = None
 
     def _s3(self):
@@ -48,25 +84,35 @@ class S3Exporter:
         self._client = boto3.client("s3")
         return self._client
 
-    def _build_key(self, *, context: dict[str, Any] | None) -> str:
-        run_id = (context or {}).get("run_id") or dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-        prefix = (self.prefix or "").replace("${run_id}", run_id)
-        parts = [prefix.rstrip("/")]
-        if "date" in (self.partition_by or []):
-            parts.append(f"date={_now_date()}")
-        # unique object name for append semantics
-        if self.format == "jsonl":
-            ext = ".jsonl"
-        elif self.format == "csv":
-            ext = ".csv"
-        elif self.format == "parquet":
-            ext = ".parquet"
-        else:
-            ext = ".bin"
+    def _ext(self) -> str:
+        mapping = {
+            "jsonl": ".jsonl",
+            "csv": ".csv",
+            "parquet": ".parquet",
+        }
+        ext = mapping.get(self.format, ".bin")
         if self.compression == "gzip":
             ext += ".gz"
-        parts.append(f"part-{uuid.uuid4().hex}{ext}")
-        return "/".join([p for p in parts if p])
+        return ext
+
+    def _build_key(self, *, context: dict[str, Any] | None, final: bool = True) -> str:
+        run_id = (context or {}).get("run_id") or utc_now_iso().replace(":", "").replace("-", "")
+        prefix = (self.prefix or "").replace("${run_id}", run_id).strip("/")
+        parts = [prefix] if prefix else []
+        if "date" in (self.partition_by or []):
+            parts.append(f"date={_now_date()}")
+        base_name = context.get("filename") if isinstance(context, dict) else None  # type: ignore[arg-type]
+        if not base_name:
+            base_name = self.name or "export"
+        if self.write_mode == "overwrite" and final:
+            filename = f"{base_name}{self._ext()}"
+        else:
+            filename = f"part-{uuid.uuid4().hex}{self._ext()}"
+        parts.append(filename)
+        key = "/".join([p for p in parts if p])
+        if not final:
+            key = f"{key}.tmp-{uuid.uuid4().hex}"
+        return key
 
     def _ensure_records(self, recs: Iterable[dict[str, Any]] | bytes | str) -> List[Dict[str, Any]]:
         if isinstance(recs, (bytes, str)):
@@ -140,20 +186,69 @@ class S3Exporter:
         records: Iterable[dict[str, Any]] | bytes | str,
         *,
         schema: dict[str, Any] | None = None,
-        mode: str = "append",
+        mode: str | None = None,
         key_fields: list[str] | None = None,
         context: dict[str, Any] | None = None,
     ) -> ExportResult:
-        key = self._build_key(context=context)
+        active_mode = (mode or self.write_mode or "append").lower()
+        if active_mode == "upsert":  # TODO: implement S3 upsert semantics via merge manifest
+            raise ExportError("S3 upsert mode is not supported yet")
+
         data = self._serialize(records)
-        kwargs = {"Bucket": self.bucket, "Key": key, "Body": data}
+        client = self._s3()
+        md5_digest = hashlib.md5(data).digest()
+        content_md5 = base64.b64encode(md5_digest).decode("ascii")
+        sha256_hex = hashlib.sha256(data).hexdigest()
+        metadata = {"fmf-sha256": sha256_hex, "fmf-bytes": str(len(data))}
+        quoted_etag = f'"{md5_digest.hex()}"'
+
+        if active_mode == "overwrite":
+            final_key = self._build_key(context=context, final=True)
+            temp_key = self._build_key(context=context, final=False)
+            put_kwargs = {"Bucket": self.bucket, "Key": temp_key, "Body": data, "ContentMD5": content_md5, "Metadata": metadata}
+            if self.sse == "kms":
+                put_kwargs["ServerSideEncryption"] = "aws:kms"
+                if self.kms_key_id:
+                    put_kwargs["SSEKMSKeyId"] = self.kms_key_id
+            elif self.sse == "s3":
+                put_kwargs["ServerSideEncryption"] = "AES256"
+            client.put_object(**put_kwargs)
+            copy_source = {"Bucket": self.bucket, "Key": temp_key}
+            copy_kwargs = {
+                "Bucket": self.bucket,
+                "Key": final_key,
+                "CopySource": copy_source,
+                "CopySourceIfMatch": quoted_etag,
+                "MetadataDirective": "COPY",
+            }
+            if self.sse == "kms":
+                copy_kwargs["ServerSideEncryption"] = "aws:kms"
+                if self.kms_key_id:
+                    copy_kwargs["SSEKMSKeyId"] = self.kms_key_id
+            elif self.sse == "s3":
+                copy_kwargs["ServerSideEncryption"] = "AES256"
+            client.copy_object(**copy_kwargs)
+            try:
+                head = client.head_object(Bucket=self.bucket, Key=final_key)
+                if head.get("ContentLength") != len(data):
+                    raise ExportError("S3 overwrite verification failed: size mismatch")
+                meta = head.get("Metadata", {}) or {}
+                if meta.get("fmf-sha256") not in {sha256_hex, sha256_hex.lower()}:
+                    raise ExportError("S3 overwrite verification failed: checksum mismatch")
+            except Exception as exc:  # pragma: no cover - best effort fallback
+                raise
+            client.delete_object(Bucket=self.bucket, Key=temp_key)
+            return ExportResult(count=-1, paths=[f"s3://{self.bucket}/{final_key}"])
+
+        key = self._build_key(context=context, final=True)
+        put_kwargs = {"Bucket": self.bucket, "Key": key, "Body": data, "ContentMD5": content_md5, "Metadata": metadata}
         if self.sse == "kms":
-            kwargs["ServerSideEncryption"] = "aws:kms"
+            put_kwargs["ServerSideEncryption"] = "aws:kms"
             if self.kms_key_id:
-                kwargs["SSEKMSKeyId"] = self.kms_key_id
+                put_kwargs["SSEKMSKeyId"] = self.kms_key_id
         elif self.sse == "s3":
-            kwargs["ServerSideEncryption"] = "AES256"
-        self._s3().put_object(**kwargs)
+            put_kwargs["ServerSideEncryption"] = "AES256"
+        client.put_object(**put_kwargs)
         return ExportResult(count=-1, paths=[f"s3://{self.bucket}/{key}"])
 
     def finalize(self) -> None:

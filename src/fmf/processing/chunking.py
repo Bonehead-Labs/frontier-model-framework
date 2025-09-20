@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import List
 
+from ..core.ids import chunk_id as compute_chunk_id
 from ..types import Chunk
 
 
@@ -46,7 +47,16 @@ def chunk_text(
         u_tokens = estimate_tokens(u)
         if cur_tokens + u_tokens > max_tokens and cur_parts:
             chunk_text_val = " ".join(cur_parts).strip()
-            chunks.append(Chunk(id=f"{doc_id}_ch{cid}", doc_id=doc_id, text=chunk_text_val, tokens_estimate=estimate_tokens(chunk_text_val)))
+            chunk_identifier = compute_chunk_id(document_id=doc_id, index=cid, payload=chunk_text_val)
+            chunks.append(
+                Chunk(
+                    id=chunk_identifier,
+                    doc_id=doc_id,
+                    text=chunk_text_val,
+                    tokens_estimate=estimate_tokens(chunk_text_val),
+                    provenance={"index": cid, "splitter": splitter, "length_chars": len(chunk_text_val)},
+                )
+            )
             cid += 1
             # start new chunk with overlap from end of previous
             if overlap > 0 and chunks[-1].text:
@@ -63,10 +73,18 @@ def chunk_text(
 
     if cur_parts:
         chunk_text_val = " ".join(cur_parts).strip()
-        chunks.append(Chunk(id=f"{doc_id}_ch{cid}", doc_id=doc_id, text=chunk_text_val, tokens_estimate=estimate_tokens(chunk_text_val)))
+        chunk_identifier = compute_chunk_id(document_id=doc_id, index=cid, payload=chunk_text_val)
+        chunks.append(
+            Chunk(
+                id=chunk_identifier,
+                doc_id=doc_id,
+                text=chunk_text_val,
+                tokens_estimate=estimate_tokens(chunk_text_val),
+                provenance={"index": cid, "splitter": splitter, "length_chars": len(chunk_text_val)},
+            )
+        )
 
     return chunks
 
 
 __all__ = ["chunk_text", "estimate_tokens"]
-

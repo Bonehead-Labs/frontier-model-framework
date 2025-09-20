@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
-from typing import List
+from typing import Any, List
 
 from .config.loader import load_config
 from .auth import build_provider, AuthError
@@ -18,6 +19,7 @@ from .inference.unified import build_llm_client
 from .inference.base_client import Message
 from .chain.runner import run_chain
 from .exporters import build_exporter
+from .core.errors import FmfError, get_exit_code
 from .sdk import FMF
 
 
@@ -34,13 +36,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers = parser.add_subparsers(dest="command", metavar="{keys,connect,process,prompt,run,infer,export}")
-    # Extend metavar to include sdk wrappers
-    subparsers.metavar = "{keys,connect,process,prompt,run,infer,export,csv,text,images}"
+    # Extend metavar to include sdk wrappers and diagnostics for --help readability
+    subparsers.metavar = "{keys,connect,process,prompt,run,infer,export,csv,text,images,doctor,recipe}"
 
     # keys subcommands
-    keys = subparsers.add_parser("keys", help="Manage/test secret resolution")
+    keys = subparsers.add_parser(
+        "keys",
+        help="Manage/test secret resolution",
+        description="Secret resolution helpers for the active run profile.",
+    )
     keys_sub = keys.add_subparsers(dest="keys_cmd")
-    keys_test = keys_sub.add_parser("test", help="Verify secret resolution for given names")
+    keys_test = keys_sub.add_parser(
+        "test",
+        help="Verify secret resolution for logical secret names",
+        description="Attempts to resolve the provided secrets and redacts values in output.",
+    )
     keys_test.add_argument("names", nargs="*", help="Logical secret names to resolve (e.g., OPENAI_API_KEY)")
     keys_test.add_argument(
         "-c", "--config", default="fmf.yaml", help="Path to config YAML (default: fmf.yaml)"
@@ -52,10 +62,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Override config values: key.path=value (repeatable)",
     )
+    keys_test.add_argument("--json", action="store_true", help="Emit machine-readable JSON output")
     # connect subcommands
     connect = subparsers.add_parser("connect", help="List and interact with data connectors")
     connect_sub = connect.add_subparsers(dest="connect_cmd")
-    connect_ls = connect_sub.add_parser("ls", help="List resources for a configured connector")
+    connect_ls = connect_sub.add_parser(
+        "ls",
+        help="List resources for a configured connector",
+        aliases=["list"],
+        description="Enumerate resources to confirm connector configuration",
+    )
     connect_ls.add_argument("name", help="Connector name from config")
     connect_ls.add_argument(
         "--select",
@@ -72,6 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Override config values: key.path=value (repeatable)",
     )
+    connect_ls.add_argument("--json", action="store_true", help="Emit machine-readable resource list")
 
     # process subcommand
     process = subparsers.add_parser("process", help="Process and chunk input data to artefacts")
@@ -85,9 +102,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # run chain
-    run_cmd = subparsers.add_parser("run", help="Execute a chain from YAML")
+    run_cmd = subparsers.add_parser(
+        "run",
+        help="Execute a chain from YAML",
+        description="Run a declarative chain file and persist artefacts",
+    )
     run_cmd.add_argument("--chain", required=True, help="Path to chain YAML")
     run_cmd.add_argument("-c", "--config", default="fmf.yaml", help="Path to config YAML")
+    run_cmd.add_argument(
+        "--set",
+        dest="set_overrides",
+        action="append",
+        default=[],
+        help="Override config values: key.path=value (repeatable)",
+    )
+    run_cmd.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress run identifiers in stdout",
+    )
     process.add_argument("-c", "--config", default="fmf.yaml", help="Path to config YAML")
     process.add_argument(
         "--set",
@@ -202,9 +235,103 @@ def _cmd_keys_test(args: argparse.Namespace) -> int:
         print(f"Secret resolution failed: {e}")
         return 1
 
+    secrets_output: list[dict[str, str]] = []
+    if not getattr(args, "json", False) and not getattr(args, "quiet", False):
+        print("Secrets:")
     for n in names:
         status = "OK" if n in resolved else "MISSING"
-        print(f"{n}=**** {status}")
+        if getattr(args, "json", False):
+            secrets_output.append({"name": n, "status": status})
+        else:
+            print(f"{n}=**** {status}")
+
+    def _get(obj: Any, key: str, default: Any = None) -> Any:
+        if obj is None:
+            return default
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    diagnostics: list[tuple[str, str, str, str]] = []
+
+    # Connectors diagnostics
+    connectors_cfg = getattr(cfg, "connectors", None) if not isinstance(cfg, dict) else cfg.get("connectors")
+    required_connectors = {
+        "local": ["root"],
+        "s3": ["bucket"],
+        "sharepoint": ["site_url", "drive"],
+    }
+    for c in connectors_cfg or []:
+        name = _get(c, "name", "unknown")
+        ctype = _get(c, "type", "unknown")
+        required = required_connectors.get(ctype, [])
+        missing = [field for field in required if not _get(c, field)]
+        if ctype not in required_connectors:
+            diagnostics.append(("Connector", name, "WARN", f"unknown type '{ctype}'"))
+        elif missing:
+            diagnostics.append(("Connector", name, "WARN", f"missing fields: {', '.join(missing)}"))
+        else:
+            diagnostics.append(("Connector", name, "OK", ""))
+
+    # Inference diagnostics
+    inference_cfg = getattr(cfg, "inference", None) if not isinstance(cfg, dict) else cfg.get("inference")
+    provider_name = _get(inference_cfg, "provider")
+    if provider_name:
+        from .inference.registry import available_providers
+
+        providers = available_providers()
+        if provider_name not in providers:
+            diagnostics.append(("Provider", provider_name, "FAIL", "not registered"))
+        else:
+            subcfg = _get(inference_cfg, provider_name)
+            required = {
+                "azure_openai": ["endpoint", "deployment"],
+                "aws_bedrock": ["region", "model_id"],
+            }.get(provider_name, [])
+            missing = [field for field in required if not _get(subcfg, field)]
+            if missing:
+                diagnostics.append(("Provider", provider_name, "WARN", f"missing fields: {', '.join(missing)}"))
+            else:
+                diagnostics.append(("Provider", provider_name, "OK", ""))
+    else:
+        diagnostics.append(("Provider", "<unset>", "WARN", "inference.provider not configured"))
+
+    # Exporter diagnostics
+    export_cfg = getattr(cfg, "export", None) if not isinstance(cfg, dict) else cfg.get("export")
+    sinks_cfg = _get(export_cfg, "sinks", [])
+    required_sinks = {
+        "s3": ["bucket"],
+        "dynamodb": ["table"],
+        "sharepoint_excel": ["site_url", "drive", "file_path"],
+    }
+    for sink in sinks_cfg or []:
+        name = _get(sink, "name", "unknown")
+        stype = _get(sink, "type", "unknown")
+        required = required_sinks.get(stype, [])
+        missing = [field for field in required if not _get(sink, field)]
+        if stype not in required_sinks:
+            diagnostics.append(("Exporter", name, "WARN", f"unknown type '{stype}'"))
+        elif missing:
+            diagnostics.append(("Exporter", name, "WARN", f"missing fields: {', '.join(missing)}"))
+        else:
+            diagnostics.append(("Exporter", name, "OK", ""))
+
+    if getattr(args, "json", False):
+        payload = {
+            "secrets": secrets_output,
+            "diagnostics": [
+                {"category": category.lower(), "name": name, "status": status, "detail": note}
+                for category, name, status, note in diagnostics
+            ],
+        }
+        print(json.dumps(payload, indent=2))
+    elif diagnostics and not getattr(args, "quiet", False):
+        print("Diagnostics:")
+        for category, name, status, note in diagnostics:
+            line = f"  {category:<10} {name:<20} {status}"
+            if note:
+                line += f" - {note}"
+            print(line)
 
     return 0
 
@@ -231,13 +358,23 @@ def _cmd_connect_ls(args: argparse.Namespace) -> int:
 
     conn = build_connector(target)
     selector = args.selector or None
-    for ref in conn.list(selector=selector):
-        print(f"{ref.id}\t{ref.uri}")
+    resources = list(conn.list(selector=selector))
+    if getattr(args, "json", False):
+        payload = [
+            {"id": ref.id, "uri": ref.uri, "name": ref.name}
+            for ref in resources
+        ]
+        print(json.dumps(payload, indent=2))
+    else:
+        quiet = getattr(args, "quiet", False)
+        for ref in resources:
+            if not quiet:
+                print(f"{ref.id}\t{ref.uri}")
     return 0
 
 
 def _gen_run_id() -> str:
-    ts = _dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     rand = _uuid.uuid4().hex[:6]
     return f"{ts}-{rand}"
 
@@ -391,7 +528,11 @@ def _cmd_export(args: argparse.Namespace) -> int:
             except Exception:
                 print("Parquet input requires optional dependency 'pyarrow'.", file=sys.stderr)
                 raise SystemExit(2)
-            table = pq.read_table(path)
+            try:
+                table = pq.read_table(path)
+            except Exception as exc:
+                print(f"Failed to read Parquet file {path}: {exc}", file=sys.stderr)
+                raise SystemExit(2)
             return table.to_pylist()  # list of dicts
         raise SystemExit(2)
 
@@ -416,94 +557,107 @@ def _cmd_export(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    try:
+        args = parser.parse_args(argv)
+        if args.version:
+            # Defer importing package to avoid side-effects at import time
+            try:
+                import importlib.metadata as importlib_metadata  # py3.8+
+            except Exception:  # pragma: no cover - fallback unlikely needed on 3.12
+                import importlib_metadata  # type: ignore
 
-    if args.version:
-        # Defer importing package to avoid side-effects at import time
-        try:
-            import importlib.metadata as importlib_metadata  # py3.8+
-        except Exception:  # pragma: no cover - fallback unlikely needed on 3.12
-            import importlib_metadata  # type: ignore
+            try:
+                version = importlib_metadata.version("frontier-model-framework")
+            except importlib_metadata.PackageNotFoundError:
+                version = "0.0.0+local"
+            print(version)
+            return 0
 
-        try:
-            version = importlib_metadata.version("frontier-model-framework")
-        except importlib_metadata.PackageNotFoundError:
-            version = "0.0.0+local"
-        print(version)
-        return 0
+        # For now, show help when no subcommand is provided
+        if not getattr(args, "command", None):
+            parser.print_help()
+            return 0
 
-    # For now, show help when no subcommand is provided
-    if not getattr(args, "command", None):
-        parser.print_help()
-        return 0
+        if args.command == "keys" and getattr(args, "keys_cmd", None) == "test":
+            return _cmd_keys_test(args)
+        if args.command == "connect" and getattr(args, "connect_cmd", None) in {"ls", "list"}:
+            return _cmd_connect_ls(args)
+        if args.command == "process":
+            return _cmd_process(args)
+        if args.command == "infer":
+            return _cmd_infer(args)
+        if args.command == "run":
+            # Delegate directly to chain runner
+            overrides = getattr(args, "set_overrides", None)
+            res = run_chain(
+                args.chain,
+                fmf_config_path=args.config,
+                set_overrides=overrides or None,
+            )
+            if not getattr(args, "quiet", False):
+                print(f"run_id={res['run_id']}")
+                print(f"run_dir={res['run_dir']}")
+            return 0
+        if args.command == "export":
+            return _cmd_export(args)
+        # SDK wrappers
+        if args.command == "csv" and getattr(args, "csv_cmd", None) == "analyse":
+            f = FMF.from_env(args.config)
+            f.csv_analyse(
+                input=args.input,
+                text_col=args.text_col,
+                id_col=args.id_col,
+                prompt=args.prompt,
+                save_csv=args.save_csv,
+                save_jsonl=args.save_jsonl,
+            )
+            return 0
+        if args.command == "text" and getattr(args, "text_cmd", None) == "infer":
+            f = FMF.from_env(args.config)
+            f.text_files(prompt=args.prompt, select=args.select, save_jsonl=args.save_jsonl)
+            return 0
+        if args.command == "images" and getattr(args, "images_cmd", None) == "analyse":
+            f = FMF.from_env(args.config)
+            f.images_analyse(prompt=args.prompt, select=args.select, save_jsonl=args.save_jsonl)
+            return 0
+        if args.command == "recipe" and getattr(args, "recipe_cmd", None) == "run":
+            f = FMF.from_env(args.config)
+            f.run_recipe(args.file)
+            return 0
+        if args.command == "prompt" and getattr(args, "prompt_cmd", None) == "register":
+            from .prompts.registry import build_prompt_registry
+            cfg = load_config(args.config)
+            preg_cfg = getattr(cfg, "prompt_registry", None) if not isinstance(cfg, dict) else cfg.get("prompt_registry")
+            reg = build_prompt_registry(preg_cfg)
+            pv = reg.register(args.ref)
+            print(f"registered {pv.id}#{pv.version} hash={pv.content_hash}")
+            return 0
 
-    if args.command == "keys" and getattr(args, "keys_cmd", None) == "test":
-        return _cmd_keys_test(args)
-    if args.command == "connect" and getattr(args, "connect_cmd", None) == "ls":
-        return _cmd_connect_ls(args)
-    if args.command == "process":
-        return _cmd_process(args)
-    if args.command == "infer":
-        return _cmd_infer(args)
-    if args.command == "run":
-        # Delegate directly to chain runner
-        res = run_chain(args.chain, fmf_config_path=args.config)
-        print(f"run_id={res['run_id']}")
-        print(f"run_dir={res['run_dir']}")
-        return 0
-    if args.command == "export":
-        return _cmd_export(args)
-    # SDK wrappers
-    if args.command == "csv" and getattr(args, "csv_cmd", None) == "analyse":
-        f = FMF.from_env(args.config)
-        f.csv_analyse(
-            input=args.input,
-            text_col=args.text_col,
-            id_col=args.id_col,
-            prompt=args.prompt,
-            save_csv=args.save_csv,
-            save_jsonl=args.save_jsonl,
-        )
-        return 0
-    if args.command == "text" and getattr(args, "text_cmd", None) == "infer":
-        f = FMF.from_env(args.config)
-        f.text_files(prompt=args.prompt, select=args.select, save_jsonl=args.save_jsonl)
-        return 0
-    if args.command == "images" and getattr(args, "images_cmd", None) == "analyse":
-        f = FMF.from_env(args.config)
-        f.images_analyse(prompt=args.prompt, select=args.select, save_jsonl=args.save_jsonl)
-        return 0
-    if args.command == "recipe" and getattr(args, "recipe_cmd", None) == "run":
-        f = FMF.from_env(args.config)
-        f.run_recipe(args.file)
-        return 0
-    if args.command == "prompt" and getattr(args, "prompt_cmd", None) == "register":
-        from .prompts.registry import build_prompt_registry
-        cfg = load_config(args.config)
-        preg_cfg = getattr(cfg, "prompt_registry", None) if not isinstance(cfg, dict) else cfg.get("prompt_registry")
-        reg = build_prompt_registry(preg_cfg)
-        pv = reg.register(args.ref)
-        print(f"registered {pv.id}#{pv.version} hash={pv.content_hash}")
-        return 0
+        if args.command == "doctor":
+            # Minimal diagnostics: report provider and first connector
+            cfg = load_config(getattr(args, "config", "fmf.yaml"))
+            prov = None
+            inference_cfg = getattr(cfg, "inference", None) if not isinstance(cfg, dict) else cfg.get("inference")
+            prov = getattr(inference_cfg, "provider", None) if not isinstance(inference_cfg, dict) else (inference_cfg or {}).get("provider")
+            connectors = getattr(cfg, "connectors", None) if not isinstance(cfg, dict) else cfg.get("connectors")
+            first_conn = None
+            if connectors:
+                c = connectors[0]
+                first_conn = (getattr(c, "name", None) if not isinstance(c, dict) else c.get("name"))
+            print(f"provider={prov}")
+            print(f"connector={first_conn}")
+            return 0
 
-    if args.command == "doctor":
-        # Minimal diagnostics: report provider and first connector
-        cfg = load_config(getattr(args, "config", "fmf.yaml"))
-        prov = None
-        inference_cfg = getattr(cfg, "inference", None) if not isinstance(cfg, dict) else cfg.get("inference")
-        prov = getattr(inference_cfg, "provider", None) if not isinstance(inference_cfg, dict) else (inference_cfg or {}).get("provider")
-        connectors = getattr(cfg, "connectors", None) if not isinstance(cfg, dict) else cfg.get("connectors")
-        first_conn = None
-        if connectors:
-            c = connectors[0]
-            first_conn = (getattr(c, "name", None) if not isinstance(c, dict) else c.get("name"))
-        print(f"provider={prov}")
-        print(f"connector={first_conn}")
+        # Stub handlers: print a friendly message for unimplemented commands
+        if not getattr(args, "quiet", False):
+            print(f"Command '{args.command}' is not implemented yet.")
         return 0
-
-    # Stub handlers: print a friendly message for unimplemented commands
-    print(f"Command '{args.command}' is not implemented yet.")
-    return 0
+    except FmfError as exc:
+        print(f"{exc.__class__.__name__}: {exc}", file=sys.stderr)
+        return get_exit_code(exc)
+    except Exception as exc:  # pragma: no cover - defensive guard
+        print(f"UnexpectedError: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

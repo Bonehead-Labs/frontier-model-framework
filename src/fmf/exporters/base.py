@@ -3,9 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Literal, Protocol
 
-
-class ExportError(Exception):
-    pass
+from ..core.errors import ExportError
 
 
 @dataclass
@@ -22,7 +20,7 @@ class Exporter(Protocol):
         records: Iterable[dict[str, Any]] | bytes | str,
         *,
         schema: dict[str, Any] | None = None,
-        mode: Literal["append", "upsert", "overwrite"] = "append",
+        mode: Literal["append", "upsert", "overwrite"] | None = None,
         key_fields: list[str] | None = None,
         context: dict[str, Any] | None = None,
     ) -> ExportResult:
@@ -33,4 +31,3 @@ class Exporter(Protocol):
 
 
 __all__ = ["Exporter", "ExportResult", "ExportError"]
-
