@@ -11,3 +11,7 @@ wheels/
 
 # Credentials
 .env
+
+# Cache
+.uv_cache
+.pytest_cache
