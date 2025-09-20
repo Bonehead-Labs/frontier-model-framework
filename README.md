@@ -53,10 +53,12 @@ cp examples/fmf.example.yaml fmf.yaml
 
 Recipes (thin scripts)
 ```
-python scripts/analyse_csv.py --recipe examples/recipes/csv_analyse.yaml --enable-rag -c fmf.yaml
-python scripts/images_multi.py --recipe examples/recipes/images_multi.yaml --enable-rag -c fmf.yaml
-python scripts/text_to_json.py --recipe examples/recipes/text_to_json.yaml --enable-rag -c fmf.yaml
+python scripts/analyse_csv.py -r examples/recipes/csv_analyse.yaml -c fmf.yaml
+python scripts/images_multi.py -r examples/recipes/images_multi.yaml -c fmf.yaml
+python scripts/text_to_json.py -r examples/recipes/text_to_json.yaml -c fmf.yaml
 ```
+Each script is a thin orchestrator around `fmf.run_recipe_simple`; pass `--json` for a compact summary or
+forward RAG overrides (`--enable-rag`, `--rag-pipeline`, etc.) when the recipe supports them.
 
 Python SDK
 ```

@@ -10,5 +10,7 @@
 - Normalised error hierarchy under `fmf.core.errors` and replaced local `datetime.utcnow()` calls with timezone-aware variants.
 - Expanded `fmf keys test` to emit diagnostics for connectors/providers/exporters while preserving secret redaction.
 - CLI gains `--quiet`/`--json` parity across commands and maps framework errors to deterministic exit codes.
+- Refreshed `scripts/analyse_csv.py`, `scripts/images_multi.py`, and `scripts/text_to_json.py` to stay
+  recipe-first with shared `--recipe/--config` flags while delegating summaries to the SDK/CLI helper.
 - CI now runs lint (ruff), type-check (mypy), pytest, and coverage (≥70%) across Python 3.11/3.12; added `ruff.toml` and `mypy.ini`.
 - Added runnable recipe scripts for streaming, deterministic IDs, and export write modes.

@@ -32,6 +32,8 @@
   backwards-compatible callbacks.
 - Global `--quiet` suppresses non-essential CLI output; `--json` semantics are consistent across
   subcommands (e.g., `fmf keys test --json`, `fmf connect ls --json`).
+- The orchestration scripts in `scripts/` remain recipe-only wrappers but now share the same
+  `--recipe/--config` interface, delegating JSON summaries to a shared SDK helper instead of bespoke logic.
 
 ## Configuration toggles
 - New YAML fields under `experimental`, `processing.hash_algo`, and `retries.max_elapsed_s` mirror the
