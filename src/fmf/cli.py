@@ -191,6 +191,11 @@ def build_parser() -> argparse.ArgumentParser:
     recipe_run = recipe_sub.add_parser("run", help="Run a recipe YAML file")
     recipe_run.add_argument("--file", required=True, help="Path to recipe YAML")
     recipe_run.add_argument("-c", "--config", default="fmf.yaml")
+    recipe_run.add_argument(
+        "--emit-json-summary",
+        action="store_true",
+        help="Emit compact JSON summary instead of human output",
+    )
     export.add_argument(
         "--input-format",
         choices=["auto", "jsonl", "csv", "parquet"],
@@ -621,6 +626,10 @@ def main(argv: list[str] | None = None) -> int:
             f.images_analyse(prompt=args.prompt, select=args.select, save_jsonl=args.save_jsonl)
             return 0
         if args.command == "recipe" and getattr(args, "recipe_cmd", None) == "run":
+            if getattr(args, "emit_json_summary", False):
+                summary = run_recipe_simple(args.config, args.file)
+                print(json.dumps(summary.__dict__, separators=(",", ":")))
+                return 0 if summary.ok else 1
             f = FMF.from_env(args.config)
             f.run_recipe(args.file)
             return 0
