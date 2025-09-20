@@ -1,0 +1,9 @@
+recipe: csv_analyse
+connector: fabric_comments
+input: Test_Table_1
+id_col: ID
+text_col: Comment
+prompt: |
+  Summarise this comment in ten words or less. Be clear and concise.
+save:
+  parquet: C:/Documents/Test_Folder/comments_summary.parquet

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
-Example: Analyse text files (md, txt, html) and emit JSON outputs using a Recipe YAML.
+Analyse Microsoft Fabric comments table row-by-row via FMF Recipe.
 
-Usage:
-  python scripts/text_to_json.py --recipe examples/recipes/text_to_json.yaml -c fmf.yaml \
-    --enable-rag
+Usage (defaults to the provided recipe):
+  python scripts/fabric_comments.py -c fmf.yaml --enable-rag
+
+Adjust the recipe (examples/recipes/fabric_comments.yaml) or pass --recipe to point to
+bespoke copies.
 """
 
 from __future__ import annotations
@@ -13,11 +15,15 @@ import argparse
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Run a text-to-JSON Recipe via FMF SDK")
-    ap.add_argument("--recipe", required=True, help="Path to a Recipe YAML (e.g., examples/recipes/text_to_json.yaml)")
+    ap = argparse.ArgumentParser(description="Run Fabric comments analysis via FMF SDK")
+    ap.add_argument(
+        "--recipe",
+        default="examples/recipes/fabric_comments.yaml",
+        help="Path to the Fabric recipe YAML (default: examples/recipes/fabric_comments.yaml)",
+    )
     ap.add_argument("-c", "--config", default="fmf.yaml", help="Path to FMF config (default: fmf.yaml)")
     ap.add_argument("--enable-rag", action="store_true", help="Use the recipe's optional RAG block if present")
-    ap.add_argument("--rag-pipeline", help="Optional RAG pipeline name configured in fmf.yaml")
+    ap.add_argument("--rag-pipeline", help="Override the RAG pipeline name configured in the recipe")
     ap.add_argument(
         "--rag-top-k-text",
         type=int,
@@ -42,7 +48,7 @@ def main() -> None:
         rag_kwargs["rag_top_k_images"] = args.rag_top_k_images
 
     fmf.run_recipe(args.recipe, **rag_kwargs)
-    print("Run complete. See artefacts for outputs defined in the recipe.")
+    print("Fabric comment analysis complete. Check artefacts and configured outputs for results.")
 
 
 if __name__ == "__main__":

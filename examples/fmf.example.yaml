@@ -22,6 +22,11 @@ processing:
 
 rag:
   pipelines:
+    - name: local_docs_rag
+      connector: local_docs
+      select: ["**/*.md", "**/*.txt"]
+      modalities: ["text"]
+      max_text_items: 5
     - name: sample_images
       connector: local_docs
       select: ["**/*.{png,jpg,jpeg}"]

@@ -6,9 +6,9 @@ FMF is a pluggable, provider‑agnostic framework for building LLM‑powered dat
 Links
 -----
 
+- Unified workflow & use-case playbooks: `docs/USAGE.md`
 - Architecture and conventions: `AGENTS.md`
-- Build plan and milestone tracking: `BUILD_PLAN.md`
-- Usage guide (recommended quick start): `docs/USAGE.md`
+- Build plan and milestone tracking: `docs/BUILD_PLAN.md`
 - Deployment notes and IAM examples: `docs/DEPLOYMENT.md`, `docs/IAM_POLICIES.md`
 - Examples: `examples/`
 
@@ -49,7 +49,14 @@ uv sync -E aws -E azure     # installs base + selected extras from pyproject
 cp examples/fmf.example.yaml fmf.yaml
 ```
 
-3) Quickest path — SDK or CLI (no YAML required):
+3) Quickest path — run a recipe (recommended) or use the SDK/CLI helpers:
+
+Recipes (thin scripts)
+```
+python scripts/analyse_csv.py --recipe examples/recipes/csv_analyse.yaml --enable-rag -c fmf.yaml
+python scripts/images_multi.py --recipe examples/recipes/images_multi.yaml --enable-rag -c fmf.yaml
+python scripts/text_to_json.py --recipe examples/recipes/text_to_json.yaml --enable-rag -c fmf.yaml
+```
 
 Python SDK
 ```

@@ -8,3 +8,6 @@ prompt: |
 expects_json: true
 save:
   jsonl: artefacts/${run_id}/text_outputs.jsonl
+rag:
+  pipeline: local_docs_rag
+  top_k_text: 3

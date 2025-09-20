@@ -1,0 +1,132 @@
+project: frontier-model-framework
+run_profile: default
+artefacts_dir: artefacts
+
+auth:
+  provider: env
+  env:
+    file: ""  # optional path to .env if you use one
+
+connectors:
+  # Microsoft Fabric (OneLake) table materialised as Parquet/Delta on disk
+  - name: fabric_comments
+    type: local
+    root: "C:/Users/<your-user>/AppData/Local/Microsoft/OneLake/<workspace>/<lakehouse>/Tables/Test_Table_1"
+    include: ["**/*.parquet"]
+
+  # Generic local documents/images area for quick tests
+  - name: local_docs
+    type: local
+    root: "./data"
+    include: ["**/*.md", "**/*.txt", "**/*.csv", "**/*.{png,jpg,jpeg}"]
+
+  # AWS S3 bucket (read/write) for raw inputs or exports
+  - name: s3_raw
+    type: s3
+    bucket: "<your-input-bucket>"
+    prefix: "raw/"
+    region: "<aws-region>"
+    kms_required: false
+
+  # SharePoint document library via Microsoft Graph
+  - name: sharepoint_policies
+    type: sharepoint
+    site_url: "https://<tenant>.sharepoint.com/sites/<site-name>"
+    drive: "Documents"
+    root_path: "Policies/"
+    auth_profile: "default"
+
+processing:
+  text:
+    chunking:
+      strategy: recursive
+      max_tokens: 800
+      overlap: 150
+      splitter: by_sentence
+  tables:
+    formats: [csv, parquet]
+    header_row: 1
+    treat_as_md_table: false
+  images:
+    ocr:
+      enabled: false
+  metadata:
+    include_source_path: true
+    include_hash: sha256
+
+inference:
+  provider: azure_openai
+
+  azure_openai:
+    endpoint: "https://<your-resource>.openai.azure.com/"
+    api_version: "2024-02-15-preview"
+    deployment: "<your-deployment>"
+    temperature: 0.2
+    max_tokens: 256
+
+  aws_bedrock:
+    region: "<aws-region>"
+    model_id: "anthropic.claude-3-haiku-20240307-v1:0"
+    temperature: 0.2
+    max_tokens: 512
+
+export:
+  default_sink: ""  # optional: name of sink below to use by default
+  sinks:
+    - name: s3_results
+      type: s3
+      bucket: "<your-output-bucket>"
+      prefix: "fmf/outputs/${run_id}/"
+      region: "<aws-region>"
+      format: jsonl
+      compression: gzip
+
+    - name: sharepoint_excel
+      type: sharepoint_excel
+      site_url: "https://<tenant>.sharepoint.com/sites/<site-name>"
+      drive: "Documents"
+      file_path: "Reports/fmf-output.xlsx"
+      sheet: "Results"
+      mode: upsert
+      key_fields: ["source_uri"]
+      create_if_missing: true
+
+    - name: delta_s3
+      type: delta
+      storage: s3
+      path: "s3://<your-output-bucket>/delta/fmf_results"
+      mode: append
+
+    - name: dynamodb_events
+      type: dynamodb
+      table: "fmf-events"
+      region: "<aws-region>"
+      key_schema:
+        pk: run_id
+        sk: record_id
+      ttl_attribute: "expires_at"
+      mode: upsert
+
+prompt_registry:
+  backend: local_yaml
+  path: ./prompts
+  index_file: prompts/index.yaml
+
+rag:
+  pipelines:
+    - name: local_docs_rag
+      connector: local_docs
+      select: ["**/*.md", "**/*.txt"]
+      modalities: ["text"]
+      max_text_items: 5
+
+    - name: sample_images
+      connector: local_docs
+      select: ["**/*.{png,jpg,jpeg}"]
+      modalities: ["image"]
+      max_image_items: 8
+      build_concurrency: 4
+
+run:
+  chain_config: ""
+  inputs: {}

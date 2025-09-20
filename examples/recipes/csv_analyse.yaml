@@ -6,3 +6,6 @@ prompt: Summarise this comment concisely.
 save:
   csv: artefacts/${run_id}/analysis.csv
   jsonl: artefacts/${run_id}/analysis.jsonl
+rag:
+  pipeline: local_docs_rag
+  top_k_text: 3

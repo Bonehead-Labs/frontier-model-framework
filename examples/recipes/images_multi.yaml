@@ -9,3 +9,7 @@ expects_json: true
 group_size: 3   # group multiple images per request
 save:
   jsonl: artefacts/${run_id}/images_multi.jsonl
+rag:
+  pipeline: sample_images
+  top_k_text: 0
+  top_k_images: 2
