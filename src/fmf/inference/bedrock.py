@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import Any, Callable, Iterable, Optional
 
 from .base_client import Completion, InferenceError, LLMClient, Message, RateLimiter, with_retries
@@ -25,6 +24,10 @@ class BedrockClient:
         self._transport = transport
         self._stream_transport = stream_transport
         self._rl = RateLimiter(rate_per_sec)
+        self._last_retries = 0
+
+    def supports_streaming(self) -> bool:
+        return self._stream_transport is not None
 
     def _default_transport(self, payload: dict) -> dict:  # pragma: no cover - requires network
         import boto3
@@ -113,10 +116,6 @@ class BedrockClient:
                 ct = estimate_tokens(text)
             return Completion(text=text, model=self.model_id, stop_reason=data.get("stop_reason"), prompt_tokens=pt, completion_tokens=ct)
 
-        def _stream_enabled() -> bool:
-            value = os.getenv("FMF_EXPERIMENTAL_STREAMING", "")
-            return value.lower() in {"1", "true", "yes", "on"}
-
         def _stream_payload() -> Optional[Completion]:
             transport = self._stream_transport
             if transport is None:
@@ -170,13 +169,14 @@ class BedrockClient:
             transport = self._transport or self._default_transport
             return transport(payload)
 
+        attempts: dict[str, int] = {}
+
         def _do():
             self._rl.wait()
             if stream and on_token is not None:
-                if _stream_enabled():
-                    streamed = _stream_payload()
-                    if streamed is not None:
-                        return streamed
+                streamed = _stream_payload()
+                if streamed is not None:
+                    return streamed
                 data = _call_transport()
                 completion = _parse_response(data)
                 if completion.text:
@@ -186,9 +186,19 @@ class BedrockClient:
             return _parse_response(data)
 
         try:
-            return with_retries(_do)
-        except InferenceError as e:
-            raise InferenceError(f"Bedrock error: {e}", status_code=e.status_code)
+            completion = with_retries(_do, record_attempts=attempts)
+        except InferenceError as err:
+            try:
+                self._last_retries = attempts.get("retries", 0)
+            except Exception:
+                pass
+            raise InferenceError(f"Bedrock error: {err}", status_code=err.status_code) from err
+        else:
+            try:
+                self._last_retries = attempts.get("retries", 0)
+            except Exception:
+                pass
+            return completion
 
 
 @register_provider("aws_bedrock")

@@ -33,6 +33,10 @@ class InferenceError(FmfError):
         self.status_code = status_code
 
 
+class ProviderError(InferenceError):
+    """Raised when a provider capability (e.g. streaming) is unavailable."""
+
+
 class ExportError(FmfError):
     pass
 
@@ -44,6 +48,7 @@ EXIT_CODES: dict[type[FmfError], int] = {
     ConnectorError: 4,
     ProcessingError: 5,
     InferenceError: 6,
+    ProviderError: 6,
     ExportError: 7,
 }
 
@@ -62,6 +67,7 @@ __all__ = [
     "ConnectorError",
     "ProcessingError",
     "InferenceError",
+    "ProviderError",
     "ExportError",
     "EXIT_CODES",
     "get_exit_code",

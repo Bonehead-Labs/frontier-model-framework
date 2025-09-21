@@ -26,6 +26,10 @@ class AzureOpenAIClient:
         self._transport = transport
         self._stream_transport = stream_transport
         self._rl = RateLimiter(rate_per_sec)
+        self._last_retries = 0
+
+    def supports_streaming(self) -> bool:
+        return self._stream_transport is not None
 
     def _default_transport(self, payload: dict) -> dict:  # pragma: no cover - requires network
         import os
@@ -93,10 +97,6 @@ class AzureOpenAIClient:
                 ct = estimate_tokens(msg)
             return Completion(text=msg, model=data.get("model"), stop_reason=finish, prompt_tokens=pt, completion_tokens=ct)
 
-        def _stream_enabled() -> bool:
-            value = os.getenv("FMF_EXPERIMENTAL_STREAMING", "")
-            return value.lower() in {"1", "true", "yes", "on"}
-
         def _stream_payload() -> Optional[Completion]:
             transport = self._stream_transport
             if transport is None:
@@ -140,13 +140,14 @@ class AzureOpenAIClient:
             transport = self._transport or self._default_transport
             return transport(payload)
 
+        attempts: dict[str, int] = {}
+
         def _do():
             self._rl.wait()
             if stream and on_token is not None:
-                if _stream_enabled():
-                    streamed = _stream_payload()
-                    if streamed is not None:
-                        return streamed
+                streamed = _stream_payload()
+                if streamed is not None:
+                    return streamed
                 data = _call_transport()
                 completion = _parse_response(data)
                 if completion.text:
@@ -155,7 +156,20 @@ class AzureOpenAIClient:
             data = _call_transport()
             return _parse_response(data)
 
-        return with_retries(_do)
+        try:
+            completion = with_retries(_do, record_attempts=attempts)
+        except InferenceError as err:
+            try:
+                self._last_retries = attempts.get("retries", 0)
+            except Exception:
+                pass
+            raise err
+        else:
+            try:
+                self._last_retries = attempts.get("retries", 0)
+            except Exception:
+                pass
+            return completion
 
 
 @register_provider("azure_openai")

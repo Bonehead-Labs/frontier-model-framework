@@ -107,8 +107,6 @@ def _apply_profile(cfg: dict, env: Mapping[str, str]) -> None:
 def _apply_runtime_toggles(cfg: FmfConfig) -> None:
     if getattr(cfg, "experimental", None):
         exp = cfg.experimental
-        if exp and exp.streaming and not os.getenv("FMF_EXPERIMENTAL_STREAMING"):
-            os.environ["FMF_EXPERIMENTAL_STREAMING"] = "1"
         if exp and exp.observability_otel and not os.getenv("FMF_OBSERVABILITY_OTEL"):
             os.environ["FMF_OBSERVABILITY_OTEL"] = "1"
     if getattr(cfg, "processing", None) and cfg.processing and cfg.processing.hash_algo:

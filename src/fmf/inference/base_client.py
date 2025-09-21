@@ -48,15 +48,27 @@ def should_retry(exc: Exception) -> bool:
     return code == 429 or (isinstance(code, int) and 500 <= code < 600)
 
 
-def with_retries(func: Callable[[], Completion], *, retries: int = 3, base_delay: float = 0.2) -> Completion:
+def with_retries(
+    func: Callable[[], Completion],
+    *,
+    retries: int = 3,
+    base_delay: float = 0.2,
+    record_attempts: dict[str, int] | None = None,
+) -> Completion:
     delay = base_delay
     last_exc: Exception | None = None
+    attempts_made = 0
     for attempt in range(retries + 1):
         try:
-            return func()
+            result = func()
+            if record_attempts is not None:
+                record_attempts["retries"] = attempts_made
+            return result
         except Exception as e:  # pragma: no cover - timing dependent
             last_exc = e
             if not should_retry(e) or attempt == retries:
+                if record_attempts is not None:
+                    record_attempts["retries"] = attempts_made
                 if isinstance(e, InferenceError):
                     raise
                 raise InferenceError(str(e), status_code=getattr(e, "status_code", None))
@@ -67,9 +79,12 @@ def with_retries(func: Callable[[], Completion], *, retries: int = 3, base_delay
                 metrics.inc("retries", 1)
             except Exception:
                 pass
+            attempts_made += 1
             time.sleep(delay)
             delay = min(delay * 2, 2.0)
     assert last_exc is not None
+    if record_attempts is not None:
+        record_attempts["retries"] = attempts_made
     raise InferenceError(str(last_exc))
 
 
