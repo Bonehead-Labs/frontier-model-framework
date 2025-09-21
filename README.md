@@ -58,7 +58,8 @@ python scripts/images_multi.py -r examples/recipes/images_multi.yaml -c fmf.yaml
 python scripts/text_to_json.py -r examples/recipes/text_to_json.yaml -c fmf.yaml
 ```
 Each script is a thin orchestrator around `fmf.run_recipe_simple`; pass `--json` for a compact summary or
-forward RAG overrides (`--enable-rag`, `--rag-pipeline`, etc.) when the recipe supports them.
+forward RAG overrides (`--enable-rag`, `--rag-pipeline`, etc.) when the recipe supports them. Use
+`--mode {auto,regular,stream}` to select the inference mode explicitly (defaults to `auto`).
 
 Python SDK
 ```
@@ -88,7 +89,7 @@ CLI Overview
 - `fmf connect ls <connector> --select "glob"` – list ingestible resources
 - `fmf process --connector <name> --select "glob"` – normalize + chunk to artefacts
 - `fmf prompt register <file>#<version>` – register prompt version in registry
-- `fmf infer --input file.txt` – single‑shot completion using current provider
+- `fmf infer --input file.txt [--mode auto|regular|stream]` – single‑shot completion using current provider
 - `fmf run --chain chains/sample.yaml` – execute a chain file (end‑to‑end)
 - `fmf export --sink <name> --input artefacts/<run_id>/outputs.jsonl` – write results
 

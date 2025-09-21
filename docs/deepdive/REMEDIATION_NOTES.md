@@ -26,3 +26,9 @@
 - `python -m mypy src/fmf/chain src/fmf/core/retry.py`
 - `python -m pytest --cov=src --cov-report=term --cov-report=xml`
 - `./scripts/ci_security.sh`, `./scripts/ci_quality.sh`
+
+## Streaming mode integration
+- Added `invoke_with_mode` to centralise streaming vs regular execution, capability checks, and telemetry (TTFB, latency, chunk counts, retries).
+- Wired `mode` through `chain.runner`, CLI, SDK, recipes, and orchestrators with a shared summary schema. Unsupported streaming now raises `ProviderError` with a clear remediation hint.
+- Persisted per-step telemetry in `run.yaml` (`step_telemetry`) and enriched `RunSummary` so scripts/CLI expose consistent JSON regardless of mode.
+- Expanded tests covering streaming fallbacks, chain-level overrides, and SDK/orchestrator summaries; documentation now includes design (`docs/design/MODE_SUPPORT.md`) and user guidance (`docs/usage/MODES.md`).

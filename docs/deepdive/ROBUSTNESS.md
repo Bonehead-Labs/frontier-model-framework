@@ -9,7 +9,7 @@
 ## Retries & Timeouts
 - `core/retry.py` implements exponential backoff with jitter; connectors/exporters adopt via helper functions.
 - `core/retry` now emits metrics (`retry.attempts`, `retry.failures`, `retry.success`, `retry.sleep_seconds`) with per-call labels so dashboards can spot hotspots.
-- Inference adapters (Azure, Bedrock) wrap API calls with retry logic and streaming support (gated by `FMF_EXPERIMENTAL_STREAMING`).
+- Inference adapters (Azure, Bedrock) expose `supports_streaming()` and are invoked through `invoke_with_mode`, which records retries and time-to-first-byte metrics.
 - Exporters: S3 performs atomic overwrite by staging + copy; DynamoDB and others implement batch/retry guards.
 - Gap: limited visibility into per-provider timeout defaults—document them and surface config override knobs.
 
@@ -22,7 +22,7 @@
 ## Performance Considerations
 - Chain execution concurrency limited via `ChainConfig.concurrency` (default 4). Uses `ThreadPoolExecutor` for chunk/table-row processing.
 - Connectors stream files via context managers; ensure large table/image workflows rely on iteration instead of loading entire directory contents into memory.
-- Inference streaming optional (`FMF_EXPERIMENTAL_STREAMING`). When disabled, entire response buffered—document trade-offs.
+- Streaming is opt-in via `--mode stream` or `FMF_INFER_MODE`. In non-streaming paths responses are buffered; telemetry still records latency for consistent summaries.
 - Potential hotspots: `chain.runner` monolithic function; refactor into smaller units to avoid repeated config lookups per chunk.
 
 ## Tighten-Up Recommendations

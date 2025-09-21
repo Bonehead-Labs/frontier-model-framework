@@ -5,7 +5,7 @@
 - Override hierarchy: CLI `--set key.path=value` > environment variables (`FMF_SECTION__FIELD`) > YAML values.
 - Profiles: `profiles` block supports environment-specific overrides (`local`, `aws_lambda`, `aws_batch`). Activate via `FMF_PROFILE` or `--set profiles.active=<name>`.
 - Feature toggles:
-  - `FMF_EXPERIMENTAL_STREAMING` (enable streaming chunk emission).
+  - `FMF_INFER_MODE` (force `auto`/`regular`/`stream` globally; CLI/SDK can still override downward).
   - `processing.hash_algo` & `FMF_HASH_ALGO` for deterministic IDs.
   - Retry tuning through `core/retry` (e.g., `FMF_RETRY_MAX_ELAPSED`).
   - Retry metrics surface via `observability.metrics.get_all()` (`retry.attempts`, `retry.failures`, `retry.success`, `retry.sleep_seconds`), enabling dashboards without extra wiring.

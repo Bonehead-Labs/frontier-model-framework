@@ -29,16 +29,20 @@
 
 ## Streaming & CLI updates
 - Providers exposing streaming should now yield `TokenChunk` objects to carry metadata while preserving
-  backwards-compatible callbacks.
-- Global `--quiet` suppresses non-essential CLI output; `--json` semantics are consistent across
-  subcommands (e.g., `fmf keys test --json`, `fmf connect ls --json`).
-- The orchestration scripts in `scripts/` remain recipe-only wrappers but now share the same
-  `--recipe/--config` interface, delegating JSON summaries to a shared SDK helper instead of bespoke logic.
+  backwards-compatible callbacks. Capability is advertised via `supports_streaming()`.
+- A unified `invoke_with_mode()` helper routes calls in `regular`, `stream`, or `auto` mode and emits
+  telemetry (TTFB, latency, chunk counts, retries). `ProviderError` is raised when callers demand
+  streaming but the adapter cannot provide it.
+- CLI/SDK/workflow entrypoints accept `--mode {auto,regular,stream}` (or `mode=` in SDK). Environment
+  variable `FMF_INFER_MODE` continues to override all other sources.
+- Orchestrator scripts remain thin wrappers over recipes and now forward `--mode` to the shared summary
+  helper.
 
 ## Configuration toggles
-- New YAML fields under `experimental`, `processing.hash_algo`, and `retries.max_elapsed_s` mirror the
-  existing environment variables (`FMF_EXPERIMENTAL_STREAMING`, `FMF_OBSERVABILITY_OTEL`, `FMF_HASH_ALGO`,
-  `FMF_RETRY_MAX_ELAPSED`). Environment variables continue to take precedence.
+- New YAML fields under `experimental`, `processing.hash_algo`, and `retries.max_elapsed_s` continue to
+  map to environment variables (`FMF_OBSERVABILITY_OTEL`, `FMF_HASH_ALGO`, `FMF_RETRY_MAX_ELAPSED`).
+- Streaming enablement uses `FMF_INFER_MODE` instead of the legacy
+  `FMF_EXPERIMENTAL_STREAMING`; remove references to the old name when migrating.
 
 ## Error hierarchy & CLI exits
 - CLI commands map framework errors to deterministic exit codes (`ConnectorError` => 4, etc.). Scripts
