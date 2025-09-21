@@ -36,13 +36,13 @@ jobs:
             uv venv
             . .venv/bin/activate
             uv pip install --editable '.[aws,azure,test]' || uv pip install --editable '.[test]'
-            uv pip install ruff==0.5.7 mypy==1.10.0 coverage==7.5.4
+            uv pip install ruff==0.5.7 mypy==1.10.0 coverage==7.5.4 pip-audit==2.7.3 bandit==1.7.9 radon==6.0.1
           else
             python -m venv .venv
             . .venv/bin/activate
             python -m pip install --upgrade pip
             pip install --editable '.[aws,azure,test]' || pip install --editable '.[test]'
-            pip install ruff==0.5.7 mypy==1.10.0 coverage==7.5.4
+            pip install ruff==0.5.7 mypy==1.10.0 coverage==7.5.4 pip-audit==2.7.3 bandit==1.7.9 radon==6.0.1
           fi
       - name: Ruff lint
         shell: bash
@@ -69,8 +69,29 @@ jobs:
           . .venv/bin/activate
           coverage report -m --fail-under=70
           coverage xml -o coverage.xml
+      - name: Security scans
+        shell: bash
+        run: |
+          set -euxo pipefail
+          . .venv/bin/activate
+          scripts/ci_security.sh
+      - name: Complexity & duplication metrics
+        shell: bash
+        run: |
+          set -euxo pipefail
+          . .venv/bin/activate
+          scripts/ci_quality.sh
       - name: Upload coverage
         uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ matrix.python-version }}
           path: coverage.xml
+      - name: Install jscpd
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if command -v npm >/dev/null 2>&1; then
+            npm install -g jscpd@3 || echo "::warning::Failed to install jscpd; duplication scan will be skipped"
+          else
+            echo "::warning::npm unavailable; skipping jscpd installation"
+          fi
