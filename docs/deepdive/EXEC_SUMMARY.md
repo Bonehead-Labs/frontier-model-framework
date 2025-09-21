@@ -8,7 +8,7 @@
   2. Deterministic artefact pipeline (hash-based IDs, run manifests) supports reproducibility & audit.
   3. CLI/SDK symmetry (`--json`, `run_recipe_simple`) simplifies adoption for both ops and dev teams.
 - **Key risks**:
-  1. `chain.runner` and `cli.py` remain monolithic (>600 LOC) with complex branching—difficult to reason about and extend.
+  1. `chain.runner` (~880 LOC) and `cli.py` (~670 LOC) remain monolithic with complex branching—difficult to reason about and extend.
   2. Security automation missing (pip-audit, bandit); dependencies and auth flows rely on manual vigilance.
   3. Low coverage in tracing, table-row processing, and new orchestrator helper could mask regressions.
 
@@ -29,4 +29,3 @@
 | Developer UX | ✅ CLI/SDK ergonomics strong; onboarding docs need streamlining |
 
 **Recommendation**: Treat refactoring/security/observability as parallel workstreams while preserving the stable CLI/SDK surface for early adopters.
-

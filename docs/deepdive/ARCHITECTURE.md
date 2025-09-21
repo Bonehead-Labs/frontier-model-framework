@@ -6,6 +6,7 @@
 | `src/fmf/cli.py` | CLI entrypoint | Subcommands for keys/connect/process/prompt/run/infer/export/recipe |
 | `src/fmf/sdk/` | Python SDK facade | `FMF` client + `run_recipe_simple` helper for thin orchestrators |
 | `src/fmf/chain/` | Chain loader/runner | Orchestrates connector → processing → inference → exporters |
+| `src/fmf/core/` | Shared interfaces & utilities | Typed specs (`ConnectorSpec`, `RunContext`), error taxonomy, retry helpers shared across layers |
 | `src/fmf/connectors/` | Data connectors | Local, S3, SharePoint implementations |
 | `src/fmf/processing/` | Document loaders & chunkers | Text/table/image normalization + persistence |
 | `src/fmf/inference/` | Provider adapters | Azure OpenAI, AWS Bedrock, provider registry |
@@ -15,7 +16,7 @@
 | `scripts/*.py` | Recipe orchestrators | Call `run_recipe_simple` for CSV, images, text, Fabric |
 
 ### Extension Points
-- **Connectors**: inherit `BaseConnector` and register via `connectors/__init__.py`.
+- **Connectors**: inherit `BaseConnector` and register via `connectors/__init__.py`. Legacy helpers in `connectors/base.py` (e.g., `ResourceRef`) remain available for backwards compatibility during migration.
 - **Processing**: pluggable chunking/loader utilities selected by MIME/extension.
 - **Inference providers**: implement `BaseProvider` or adapter; register in `inference/registry.py`.
 - **Exporters**: implement `Exporter` protocol; instantiated from `exporters/__init__.py` factory.
@@ -65,4 +66,3 @@ flowchart LR
 - **Idempotency** – `processing.persist` + deterministic IDs (`core/ids.py`) support reproducible runs.
 - **Configuration Profiles** – `fmf.yaml` supports profiles (local/aws_lambda/aws_batch) and env/CLI overrides.
 - **Artefact Tracking** – Each run writes manifests, chunks, outputs for audit / replay.
-
