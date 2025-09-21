@@ -8,6 +8,7 @@
 
 ## Retries & Timeouts
 - `core/retry.py` implements exponential backoff with jitter; connectors/exporters adopt via helper functions.
+- `core/retry` now emits metrics (`retry.attempts`, `retry.failures`, `retry.success`, `retry.sleep_seconds`) with per-call labels so dashboards can spot hotspots.
 - Inference adapters (Azure, Bedrock) wrap API calls with retry logic and streaming support (gated by `FMF_EXPERIMENTAL_STREAMING`).
 - Exporters: S3 performs atomic overwrite by staging + copy; DynamoDB and others implement batch/retry guards.
 - Gap: limited visibility into per-provider timeout defaults—document them and surface config override knobs.
@@ -30,4 +31,3 @@
 3. **Tracing coverage**: provide doc snippet for enabling OTEL exporter; add integration test to avoid regressions.
 4. **Chunk pipeline modularisation**: split `chain.runner` into discrete stages (inputs, steps, outputs) to simplify reasoning and future parallelism upgrades.
 5. **Performance telemetry**: record per-step timings and token usage in artefacts to highlight slow connectors or expensive prompts.
-

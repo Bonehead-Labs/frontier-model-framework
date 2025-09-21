@@ -8,6 +8,7 @@
   - `FMF_EXPERIMENTAL_STREAMING` (enable streaming chunk emission).
   - `processing.hash_algo` & `FMF_HASH_ALGO` for deterministic IDs.
   - Retry tuning through `core/retry` (e.g., `FMF_RETRY_MAX_ELAPSED`).
+  - Retry metrics surface via `observability.metrics.get_all()` (`retry.attempts`, `retry.failures`, `retry.success`, `retry.sleep_seconds`), enabling dashboards without extra wiring.
 
 ## CLI Ergonomics
 | Command | Purpose | Helpful Flags |
@@ -38,4 +39,3 @@ print(summary.run_id)
 - [ ] Add `uv`/`pip` bootstrap instructions; current `.venv` lacks `pip`, complicating extra tooling installs.
 - [ ] Publish CI badges showing lint/type/test coverage to build trust.
 - [ ] Package quickstart notebook or markdown linking config → recipe → CLI run for end-to-end orientation.
-
