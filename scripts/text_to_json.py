@@ -19,6 +19,7 @@ def main() -> int:
     ap.add_argument("--rag-pipeline", help="Override RAG pipeline name")
     ap.add_argument("--rag-top-k-text", type=int, help="Override RAG text top-k")
     ap.add_argument("--rag-top-k-images", type=int, help="Override RAG image top-k")
+    ap.add_argument("--mode", choices=["auto", "regular", "stream"], help="Inference mode override")
     args = ap.parse_args()
 
     summary = run_recipe_simple(
@@ -28,6 +29,7 @@ def main() -> int:
         rag_pipeline=args.rag_pipeline,
         rag_top_k_text=args.rag_top_k_text,
         rag_top_k_images=args.rag_top_k_images,
+        mode=args.mode,
     )
 
     if args.json:
