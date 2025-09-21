@@ -41,7 +41,55 @@ class TestMetricsAndTracing(unittest.TestCase):
         with trace_span("unit-test"):
             pass
 
+    def test_tracing_with_fake_otel(self):
+        import types
+        from contextlib import contextmanager
+        import sys
+        from fmf.observability.tracing import trace_span
+
+        os.environ["FMF_OBSERVABILITY_OTEL"] = "true"
+
+        class FakeSpan:
+            def __init__(self):
+                self.attrs = {}
+
+            def set_attribute(self, key, value):
+                self.attrs[key] = value
+
+        class FakeTracer:
+            def __init__(self):
+                self.captured = []
+
+            def start_as_current_span(self, name):
+                span = FakeSpan()
+                self.captured.append((name, span))
+
+                @contextmanager
+                def _cm():
+                    yield span
+
+                return _cm()
+
+        tracer = FakeTracer()
+        trace_module = types.ModuleType("opentelemetry.trace")
+        trace_module.get_tracer = lambda _: tracer
+        pkg = types.ModuleType("opentelemetry")
+        pkg.trace = trace_module
+        sys.modules["opentelemetry"] = pkg
+        sys.modules["opentelemetry.trace"] = trace_module
+        try:
+            with trace_span("unit-test", example="value"):
+                pass
+        finally:
+            os.environ.pop("FMF_OBSERVABILITY_OTEL", None)
+            sys.modules.pop("opentelemetry", None)
+            sys.modules.pop("opentelemetry.trace", None)
+
+        self.assertEqual(len(tracer.captured), 1)
+        name, span = tracer.captured[0]
+        self.assertEqual(name, "unit-test")
+        self.assertEqual(span.attrs.get("example"), "value")
+
 
 if __name__ == "__main__":
     unittest.main()
-
