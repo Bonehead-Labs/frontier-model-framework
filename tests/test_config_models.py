@@ -149,7 +149,7 @@ class TestConfigModels(unittest.TestCase):
 
         load_config(yaml_path)
 
-        self.assertEqual(os.environ.get("FMF_EXPERIMENTAL_STREAMING"), "1")
+        self.assertIsNone(os.environ.get("FMF_EXPERIMENTAL_STREAMING"))
         self.assertEqual(os.environ.get("FMF_OBSERVABILITY_OTEL"), "1")
         self.assertEqual(os.environ.get("FMF_HASH_ALGO"), "xxh64")
         self.assertEqual(os.environ.get("FMF_RETRY_MAX_ELAPSED"), "12.0")

@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import os
 import unittest
 
 from fmf.core.interfaces import BaseProvider, CompletionRequest, CompletionResponse, ModelSpec
+from fmf.core.errors import ProviderError
 from fmf.inference.azure_openai import AzureOpenAIClient
 from fmf.inference.bedrock import BedrockClient
 from fmf.inference.base_client import Message
+from fmf.inference.runtime import invoke_with_mode
 
 
 class TestStreamingAdapters(unittest.TestCase):
-    def tearDown(self) -> None:
-        os.environ.pop("FMF_EXPERIMENTAL_STREAMING", None)
 
     def test_iter_tokens_default_returns_completion(self) -> None:
         from fmf.core.interfaces import BaseProvider, CompletionRequest, CompletionResponse, ModelSpec
@@ -35,11 +34,8 @@ class TestStreamingAdapters(unittest.TestCase):
         self.assertIn("hello", tokens[0])
         self.assertEqual(response.text, tokens[0])
 
-    def test_azure_streaming_flag_enabled(self) -> None:
-        os.environ["FMF_EXPERIMENTAL_STREAMING"] = "true"
-
+    def test_azure_streaming_mode_auto(self) -> None:
         tokens: list[str] = []
-
         def stream_transport(payload):
             yield {"choices": [{"delta": {"content": "A"}}]}
             yield {"choices": [{"delta": {"content": "B"}, "finish_reason": "stop"}]}
@@ -55,18 +51,25 @@ class TestStreamingAdapters(unittest.TestCase):
             },
             stream_transport=stream_transport,
         )
-        response = client.complete(
+        completion, telemetry = invoke_with_mode(
+            client,
             [Message(role="user", content="hi")],
-            stream=True,
-            on_token=tokens.append,
+            mode="auto",
+            provider_name="azure_openai",
         )
-        self.assertEqual(tokens, ["A", "B"])
-        self.assertEqual(response.text, "AB")
+        self.assertTrue(telemetry.streaming)
+        self.assertEqual(completion.text, "AB")
+        self.assertEqual(telemetry.chunk_count, 2)
+        completion_stream, telemetry_stream = invoke_with_mode(
+            client,
+            [Message(role="user", content="hi")],
+            mode="stream",
+            provider_name="azure_openai",
+        )
+        self.assertTrue(telemetry_stream.streaming)
+        self.assertEqual(completion_stream.text, "AB")
 
-    def test_bedrock_streaming_flag_disabled(self) -> None:
-        os.environ.pop("FMF_EXPERIMENTAL_STREAMING", None)
-        tokens: list[str] = []
-
+    def test_bedrock_streaming_unsupported_fallback(self) -> None:
         client = BedrockClient(
             region="us-east-1",
             model_id="anthropic.test",
@@ -74,15 +77,24 @@ class TestStreamingAdapters(unittest.TestCase):
                 "output": {"text": "complete"},
                 "usage": {"input_tokens": 2, "output_tokens": 1},
             },
-            stream_transport=lambda payload: [{"content": "ignored"}],
+            stream_transport=None,
         )
-        response = client.complete(
+        with self.assertRaises(ProviderError):
+            invoke_with_mode(
+                client,
+                [Message(role="user", content="hi")],
+                mode="stream",
+                provider_name="aws_bedrock",
+            )
+        completion, telemetry = invoke_with_mode(
+            client,
             [Message(role="user", content="hi")],
-            stream=True,
-            on_token=tokens.append,
+            mode="auto",
+            provider_name="aws_bedrock",
         )
-        self.assertEqual(tokens, ["complete"])
-        self.assertEqual(response.text, "complete")
+        self.assertFalse(telemetry.streaming)
+        self.assertEqual(completion.text, "complete")
+        self.assertEqual(telemetry.fallback_reason, "streaming_unsupported")
 
 
 if __name__ == "__main__":

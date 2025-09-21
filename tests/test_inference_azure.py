@@ -14,8 +14,6 @@ class TestAzureOpenAIClient(unittest.TestCase):
         from fmf.inference.azure_openai import AzureOpenAIClient
         from fmf.inference.base_client import Message
 
-        os.environ["FMF_EXPERIMENTAL_STREAMING"] = "1"
-
         def transport(payload):
             assert "messages" in payload
             return {
@@ -57,7 +55,6 @@ class TestAzureOpenAIClient(unittest.TestCase):
         self.assertEqual(comp.prompt_tokens, 5)
         self.assertEqual(comp.completion_tokens, 2)
         self.assertEqual(toks, ["Hello ", "world"])
-        os.environ.pop("FMF_EXPERIMENTAL_STREAMING", None)
 
 
 if __name__ == "__main__":

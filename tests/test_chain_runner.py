@@ -21,6 +21,23 @@ class DummyClient:
         return type("C", (), {"text": f"OUT:{text}", "prompt_tokens": 1, "completion_tokens": 1})()
 
 
+class StreamingDummyClient(DummyClient):
+    def __init__(self):
+        super().__init__()
+        self.calls = []
+        self._last_retries = 0
+
+    def supports_streaming(self) -> bool:
+        return True
+
+    def complete(self, messages, **kwargs):
+        self.calls.append(kwargs)
+        on_token = kwargs.get("on_token")
+        if kwargs.get("stream") and callable(on_token):
+            on_token("chunk")
+        return type("C", (), {"text": "STREAM", "prompt_tokens": 1, "completion_tokens": 1})()
+
+
 class TestChainRunner(unittest.TestCase):
     def setUp(self):
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -229,6 +246,60 @@ class TestChainRunner(unittest.TestCase):
         self.assertIsNotNone(dummy.last_kwargs)
         self.assertEqual(dummy.last_kwargs.get("temperature"), 0.3)
         self.assertEqual(dummy.last_kwargs.get("max_tokens"), 10)
+
+    def test_chain_infer_mode_stream(self):
+        from fmf.chain.runner import run_chain
+        import fmf.chain.runner as runner_mod
+
+        dtemp = tempfile.TemporaryDirectory()
+        root = dtemp.name
+        with open(os.path.join(root, "doc.txt"), "w", encoding="utf-8") as f:
+            f.write("hello world")
+
+        cfg_path = self._write_yaml(
+            f"""
+            project: fmf
+            artefacts_dir: {root}
+            connectors:
+              - name: local_docs
+                type: local
+                root: {root}
+                include: ["**/*.txt"]
+            processing:
+              text:
+                chunking: {{ strategy: recursive, max_tokens: 50, overlap: 0, splitter: by_sentence }}
+            inference:
+              provider: azure_openai
+              azure_openai: {{ endpoint: https://example, api_version: 2024-02-15-preview, deployment: demo }}
+            """
+        )
+
+        chain_path = self._write_yaml(
+            """
+            name: single
+            inputs: { connector: local_docs, select: ["**/*.txt"] }
+            steps:
+              - id: step
+                prompt: "inline: {{ text }}"
+                inputs: { text: "${chunk.text}" }
+                output: result
+                infer: { mode: stream }
+            """
+        )
+
+        streaming_client = StreamingDummyClient()
+        original_builder = runner_mod.build_llm_client
+        runner_mod.build_llm_client = lambda cfg: streaming_client  # type: ignore
+        try:
+            res = run_chain(chain_path, fmf_config_path=cfg_path)
+        finally:
+            runner_mod.build_llm_client = original_builder  # type: ignore
+
+        self.assertIn("step_telemetry", res)
+        telemetry = res["step_telemetry"].get("step", {})
+        self.assertTrue(telemetry.get("streaming"))
+        self.assertTrue(streaming_client.calls)
+        self.assertTrue(streaming_client.calls[0].get("stream"))
 
 
 if __name__ == "__main__":

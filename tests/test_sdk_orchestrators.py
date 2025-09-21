@@ -28,6 +28,25 @@ class TestSdkOrchestrators(unittest.TestCase):
             run_dir.mkdir(parents=True, exist_ok=True)
             outputs = run_dir / "outputs.jsonl"
             outputs.write_text("{\"line\":1}\n{\"line\":2}\n", encoding="utf-8")
+            import yaml
+
+            run_yaml = {
+                "metrics": {
+                    "streaming_used": True,
+                    "time_to_first_byte_ms_avg": 120,
+                    "latency_ms_avg": 450,
+                    "tokens_out_sum": 84,
+                    "retries_total": 2,
+                },
+                "step_telemetry": {
+                    "analyse": {
+                        "streaming": True,
+                        "selected_mode": "stream",
+                        "fallback_reason": None,
+                    }
+                },
+            }
+            (run_dir / "run.yaml").write_text(yaml.safe_dump(run_yaml), encoding="utf-8")
 
         with patch.object(orchestrators, "FMF") as mock_fmf:
             instance = mock_fmf.from_env.return_value
@@ -40,6 +59,11 @@ class TestSdkOrchestrators(unittest.TestCase):
         self.assertEqual(summary.run_id, "20250101T000000Z")
         self.assertEqual(summary.inputs, 2)
         self.assertTrue(summary.outputs_path.endswith("outputs.jsonl"))
+        self.assertTrue(summary.streaming)
+        self.assertEqual(summary.mode, "stream")
+        self.assertEqual(summary.time_to_first_byte_ms, 120)
+        self.assertEqual(summary.tokens_out, 84)
+        self.assertEqual(summary.retries, 2)
 
     def test_run_recipe_simple_failure(self):
         from fmf.sdk import orchestrators
@@ -67,6 +91,17 @@ class TestSdkOrchestrators(unittest.TestCase):
             run_dir = artefacts_dir / "20250102T000000Z"
             run_dir.mkdir(parents=True, exist_ok=True)
             # No outputs.jsonl -> fall back to run directory path
+            import yaml
+
+            run_yaml = {
+                "metrics": {
+                    "streaming_used": False,
+                    "time_to_first_byte_ms_avg": 90,
+                    "latency_ms_avg": 300,
+                    "retries_total": 0,
+                },
+            }
+            (run_dir / "run.yaml").write_text(yaml.safe_dump(run_yaml), encoding="utf-8")
 
         with patch.object(orchestrators, "FMF") as mock_fmf:
             instance = mock_fmf.from_env.return_value
@@ -78,6 +113,8 @@ class TestSdkOrchestrators(unittest.TestCase):
         self.assertTrue(summary.ok)
         self.assertIsNone(summary.inputs)
         self.assertTrue(summary.outputs_path.endswith("20250102T000000Z"))
+        self.assertFalse(summary.streaming)
+        self.assertIsNone(summary.tokens_out)
 
 
 if __name__ == "__main__":
