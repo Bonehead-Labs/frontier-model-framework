@@ -17,9 +17,10 @@ import os as _os
 import uuid as _uuid
 from .inference.unified import build_llm_client
 from .inference.base_client import Message
+from .inference.runtime import DEFAULT_MODE, invoke_with_mode, normalize_mode
 from .chain.runner import run_chain
 from .exporters import build_exporter
-from .core.errors import FmfError, get_exit_code
+from .core.errors import ConfigError, FmfError, ProviderError, get_exit_code
 from .sdk import FMF
 
 
@@ -147,6 +148,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override config values: key.path=value (repeatable)",
     )
     infer.add_argument("--system", default="You are a helpful assistant.", help="Optional system prompt")
+    infer.add_argument(
+        "--mode",
+        choices=["auto", "regular", "stream"],
+        default=None,
+        help="Inference mode (default: auto or FMF_INFER_MODE)",
+    )
     export = subparsers.add_parser("export", help="Export artefacts/results to configured sinks")
     export.add_argument("--sink", required=True, help="Sink name as defined in config export.sinks")
     export.add_argument("--input", required=True, help="Path to input file (e.g., artefacts/<run_id>/outputs.jsonl)")
@@ -167,6 +174,12 @@ def build_parser() -> argparse.ArgumentParser:
     csv_an.add_argument("--save-csv", default=None)
     csv_an.add_argument("--save-jsonl", default=None)
     csv_an.add_argument("-c", "--config", default="fmf.yaml")
+    csv_an.add_argument(
+        "--mode",
+        choices=["auto", "regular", "stream"],
+        default=None,
+        help="Inference mode for generated chain",
+    )
 
     # SDK wrappers: text and images
     text_cmd = subparsers.add_parser("text", help="Text file workflows (SDK)")
@@ -176,6 +189,12 @@ def build_parser() -> argparse.ArgumentParser:
     text_inf.add_argument("--prompt", required=True)
     text_inf.add_argument("--save-jsonl", default=None)
     text_inf.add_argument("-c", "--config", default="fmf.yaml")
+    text_inf.add_argument(
+        "--mode",
+        choices=["auto", "regular", "stream"],
+        default=None,
+        help="Inference mode for generated chain",
+    )
 
     img_cmd = subparsers.add_parser("images", help="Image workflows (SDK)")
     img_sub = img_cmd.add_subparsers(dest="images_cmd")
@@ -184,6 +203,12 @@ def build_parser() -> argparse.ArgumentParser:
     img_an.add_argument("--prompt", required=True)
     img_an.add_argument("--save-jsonl", default=None)
     img_an.add_argument("-c", "--config", default="fmf.yaml")
+    img_an.add_argument(
+        "--mode",
+        choices=["auto", "regular", "stream"],
+        default=None,
+        help="Inference mode for generated chain",
+    )
 
     # Recipe runner
     recipe_cmd = subparsers.add_parser("recipe", help="Run high-level recipes (SDK)")
@@ -195,6 +220,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--emit-json-summary",
         action="store_true",
         help="Emit compact JSON summary instead of human output",
+    )
+    recipe_run.add_argument(
+        "--mode",
+        choices=["auto", "regular", "stream"],
+        default=None,
+        help="Override inference mode for orchestrator recipes",
     )
     export.add_argument(
         "--input-format",
@@ -447,8 +478,52 @@ def _cmd_infer(args: argparse.Namespace) -> int:
     with open(args.input, "r", encoding="utf-8") as f:
         user_text = f.read()
     messages = [Message(role="system", content=args.system), Message(role="user", content=user_text)]
-    comp = client.complete(messages, temperature=None, max_tokens=None)
-    print(comp.text)
+
+    env_mode = _os.getenv("FMF_INFER_MODE")
+    try:
+        if env_mode:
+            mode = normalize_mode(env_mode)
+        elif args.mode:
+            mode = normalize_mode(args.mode)
+        else:
+            mode = DEFAULT_MODE
+    except ValueError as err:
+        raise ConfigError(str(err)) from err
+
+    provider_name = (
+        getattr(inference_cfg, "provider", None)
+        if not isinstance(inference_cfg, dict)
+        else inference_cfg.get("provider")
+    )
+
+    try:
+        completion, telemetry = invoke_with_mode(
+            client,
+            messages,
+            temperature=None,
+            max_tokens=None,
+            mode=mode,
+            provider_name=provider_name,
+        )
+    except ProviderError as err:
+        print(f"ProviderError: {err}", file=sys.stderr)
+        return 1
+
+    print(completion.text)
+    tokens_out = getattr(completion, "completion_tokens", None)
+    summary_line = json.dumps(
+        {
+            "streaming": telemetry.streaming,
+            "mode": telemetry.selected_mode,
+            "time_to_first_byte_ms": telemetry.time_to_first_byte_ms,
+            "latency_ms": telemetry.latency_ms,
+            "tokens_out": tokens_out,
+            "retries": telemetry.retries,
+            "fallback_reason": telemetry.fallback_reason,
+        },
+        separators=(",", ":"),
+    )
+    print(f"summary={summary_line}", file=sys.stderr)
     return 0
 
 
@@ -615,23 +690,24 @@ def main(argv: list[str] | None = None) -> int:
                 prompt=args.prompt,
                 save_csv=args.save_csv,
                 save_jsonl=args.save_jsonl,
+                mode=args.mode,
             )
             return 0
         if args.command == "text" and getattr(args, "text_cmd", None) == "infer":
             f = FMF.from_env(args.config)
-            f.text_files(prompt=args.prompt, select=args.select, save_jsonl=args.save_jsonl)
+            f.text_files(prompt=args.prompt, select=args.select, save_jsonl=args.save_jsonl, mode=args.mode)
             return 0
         if args.command == "images" and getattr(args, "images_cmd", None) == "analyse":
             f = FMF.from_env(args.config)
-            f.images_analyse(prompt=args.prompt, select=args.select, save_jsonl=args.save_jsonl)
+            f.images_analyse(prompt=args.prompt, select=args.select, save_jsonl=args.save_jsonl, mode=args.mode)
             return 0
         if args.command == "recipe" and getattr(args, "recipe_cmd", None) == "run":
             if getattr(args, "emit_json_summary", False):
-                summary = run_recipe_simple(args.config, args.file)
+                summary = run_recipe_simple(args.config, args.file, mode=args.mode)
                 print(json.dumps(summary.__dict__, separators=(",", ":")))
                 return 0 if summary.ok else 1
             f = FMF.from_env(args.config)
-            f.run_recipe(args.file)
+            f.run_recipe(args.file, mode=args.mode)
             return 0
         if args.command == "prompt" and getattr(args, "prompt_cmd", None) == "register":
             from .prompts.registry import build_prompt_registry

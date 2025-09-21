@@ -23,6 +23,14 @@ from ..observability.tracing import trace_span
 from ..prompts.registry import build_prompt_registry
 from ..rag import build_rag_pipelines
 from ..core.ids import chunk_id as compute_chunk_id
+from ..core.errors import ConfigError, ProviderError
+from ..inference.runtime import (
+    DEFAULT_MODE,
+    InferenceMode,
+    InferenceTelemetry,
+    invoke_with_mode,
+    normalize_mode,
+)
 from .loader import ChainConfig, ChainStep, load_chain
 
 
@@ -246,6 +254,9 @@ class RuntimeContext:
     artefacts_dir: str
     run_id: str
     connectors_cfg: Any
+    provider_name: str | None
+    default_mode: InferenceMode
+    env_mode_override: bool
 
 
 @dataclass
@@ -263,6 +274,7 @@ class ExecutionResult:
     context_all: Dict[str, List[Any]]
     metrics: Dict[str, Any]
     prompts_used: List[Dict[str, str]]
+    step_telemetry: Dict[str, Dict[str, Any]]
 
 
 def _prepare_environment(
@@ -282,6 +294,24 @@ def _prepare_environment(
     artefacts_dir = (
         getattr(cfg, "artefacts_dir", None) if not isinstance(cfg, dict) else cfg.get("artefacts_dir")
     ) or "artefacts"
+
+    provider_name = None
+    if inference_cfg is not None:
+        provider_name = (
+            getattr(inference_cfg, "provider", None)
+            if not isinstance(inference_cfg, dict)
+            else inference_cfg.get("provider")
+        )
+
+    env_mode_raw = os.getenv("FMF_INFER_MODE")
+    env_mode_override = False
+    default_mode = DEFAULT_MODE
+    if env_mode_raw:
+        try:
+            default_mode = normalize_mode(env_mode_raw)
+        except ValueError as err:
+            raise ConfigError(str(err)) from err
+        env_mode_override = True
 
     connectors_cfg = getattr(cfg, "connectors", None) if not isinstance(cfg, dict) else cfg.get("connectors")
     if not connectors_cfg:
@@ -321,6 +351,9 @@ def _prepare_environment(
         artefacts_dir=artefacts_dir,
         run_id=run_id,
         connectors_cfg=connectors_cfg,
+        provider_name=provider_name,
+        default_mode=default_mode,
+        env_mode_override=env_mode_override,
     )
 
 
@@ -452,6 +485,8 @@ def _collect_inputs(ctx: RuntimeContext) -> InputCollections:
     return collections
 
 
+
+
 def _execute_chain_steps(ctx: RuntimeContext, inputs: InputCollections) -> ExecutionResult:
     chain = ctx.chain
     registry = ctx.registry
@@ -462,21 +497,128 @@ def _execute_chain_steps(ctx: RuntimeContext, inputs: InputCollections) -> Execu
     context_all: Dict[str, List[Any]] = {}
     prompts_used: List[Dict[str, str]] = []
     metrics = {"tokens_prompt": 0, "tokens_completion": 0}
+    step_telemetry: Dict[str, Dict[str, Any]] = {}
+    totals = {
+        "calls": 0,
+        "streaming_calls": 0,
+        "time_to_first_byte_ms_sum": 0,
+        "latency_ms_sum": 0,
+        "chunk_count": 0,
+        "tokens_out_sum": 0,
+        "tokens_out_known_calls": 0,
+        "retries": 0,
+    }
 
-    # Local helper reused across modes
     def _decorate_body(body: str, rag_images: list[dict], *, multimodal: bool) -> Tuple[List[dict] | None, str]:
         if multimodal:
             parts = [{"type": "text", "text": body}]
             return parts, body
         if rag_images:
-            refs = "\n".join(f"[{idx}] {img.get('source_uri', '')}" for idx, img in enumerate(rag_images, start=1))
+            refs = "\n".join(
+                f"[{idx}] {img.get('source_uri', '')}" for idx, img in enumerate(rag_images, start=1)
+            )
             if refs:
                 body = body + "\n\nRetrieved images:\n" + refs
         return None, body
 
+    def _summarise(samples: List[InferenceTelemetry], *, default_mode: InferenceMode) -> Dict[str, Any]:
+        if not samples:
+            return {
+                "calls": 0,
+                "streaming_calls": 0,
+                "streaming": False,
+                "selected_mode": default_mode,
+                "time_to_first_byte_ms_avg": 0,
+                "latency_ms_avg": 0,
+                "time_to_first_byte_ms_sum": 0,
+                "latency_ms_sum": 0,
+                "chunk_count": 0,
+                "tokens_out_sum": 0,
+                "tokens_out_known_calls": 0,
+                "retries": 0,
+                "fallback_reason": None,
+            }
+        calls = len(samples)
+        streaming_calls = sum(1 for s in samples if s.streaming)
+        sum_ttfb = sum(s.time_to_first_byte_ms for s in samples)
+        sum_latency = sum(s.latency_ms for s in samples)
+        chunk_total = sum(s.chunk_count for s in samples)
+        tokens_known = [s.tokens_out for s in samples if s.tokens_out is not None]
+        tokens_sum = sum(tokens_known) if tokens_known else None
+        retries_sum = sum(s.retries for s in samples)
+        fallback_reason = None
+        for sample in reversed(samples):
+            if sample.fallback_reason:
+                fallback_reason = sample.fallback_reason
+                break
+        return {
+            "calls": calls,
+            "streaming_calls": streaming_calls,
+            "streaming": streaming_calls > 0,
+            "selected_mode": samples[-1].selected_mode,
+            "time_to_first_byte_ms_avg": int(sum_ttfb / calls),
+            "latency_ms_avg": int(sum_latency / calls),
+            "time_to_first_byte_ms_sum": sum_ttfb,
+            "latency_ms_sum": sum_latency,
+            "chunk_count": chunk_total,
+            "tokens_out_sum": tokens_sum,
+            "tokens_out_known_calls": len(tokens_known),
+            "retries": retries_sum,
+            "fallback_reason": fallback_reason,
+        }
+
+    def _update_totals(aggregated: Dict[str, Any]) -> None:
+        totals["calls"] += aggregated["calls"]
+        totals["streaming_calls"] += aggregated["streaming_calls"]
+        totals["time_to_first_byte_ms_sum"] += aggregated["time_to_first_byte_ms_sum"]
+        totals["latency_ms_sum"] += aggregated["latency_ms_sum"]
+        totals["chunk_count"] += aggregated["chunk_count"]
+        tokens_sum = aggregated["tokens_out_sum"]
+        if tokens_sum is not None:
+            totals["tokens_out_sum"] += int(tokens_sum)
+            totals["tokens_out_known_calls"] += aggregated["tokens_out_known_calls"]
+        totals["retries"] += aggregated["retries"]
+
     for step in chain.steps:
         tmpl, pmeta = _load_prompt_text(step.prompt, registry=registry)
         prompts_used.append(pmeta)
+
+        if ctx.env_mode_override:
+            step_mode: InferenceMode = ctx.default_mode
+        elif step.infer_mode:
+            try:
+                step_mode: InferenceMode = normalize_mode(step.infer_mode)
+            except ValueError as err:
+                raise ConfigError(f"step '{step.id}': {err}") from err
+        else:
+            step_mode = ctx.default_mode
+
+        step_telemetries: List[InferenceTelemetry] = []
+
+        def _invoke(messages: list[Message], *, params: Dict[str, Any]) -> Completion:
+            with trace_span(
+                f"step.{step.id}",
+                step_id=step.id,
+                run_id=ctx.run_id,
+                mode=step_mode,
+                provider=ctx.provider_name or "",
+            ):
+                completion, telemetry = invoke_with_mode(
+                    client,
+                    messages,
+                    temperature=params.get("temperature"),
+                    max_tokens=params.get("max_tokens"),
+                    mode=step_mode,
+                    provider_name=ctx.provider_name,
+                )
+            step_telemetries.append(telemetry)
+            pt = getattr(completion, "prompt_tokens", None)
+            if isinstance(pt, (int, float)):
+                metrics["tokens_prompt"] += int(pt)
+            ct = getattr(completion, "completion_tokens", None)
+            if isinstance(ct, (int, float)):
+                metrics["tokens_completion"] += int(ct)
+            return completion
 
         if inputs.input_mode == "table_rows":
 
@@ -491,17 +633,17 @@ def _execute_chain_steps(ctx: RuntimeContext, inputs: InputCollections) -> Execu
                 }
                 if doc is not None:
                     vars_ctx["document"] = doc
-                inputs_rendered = {k: _interp(v, {**vars_ctx}) for k, v in (step.inputs or {}).items()}
-                ctx_dict = {**vars_ctx, "inputs": inputs_rendered}
+                rendered_inputs = {k: _interp(v, {**vars_ctx}) for k, v in (step.inputs or {}).items()}
+                ctx_dict = {**vars_ctx, "inputs": rendered_inputs}
                 extra_inputs, rag_text_block, rag_images = _prepare_rag_context(
                     step.rag,
                     pipelines=rag_pipelines,
                     records=rag_records,
                     ctx=ctx_dict,
                 )
-                inputs_rendered.update(extra_inputs)
+                rendered_inputs.update(extra_inputs)
                 body = tmpl
-                for k, v in inputs_rendered.items():
+                for k, v in rendered_inputs.items():
                     body = body.replace("{{ " + k + " }}", str(v))
                     body = body.replace("${" + k + "}", str(v))
                 if rag_text_block:
@@ -531,12 +673,7 @@ def _execute_chain_steps(ctx: RuntimeContext, inputs: InputCollections) -> Execu
                         Message(role="user", content=body),
                     ]
                 params = step.params or {}
-                with trace_span(f"step.{step.id}", step_id=step.id, run_id=ctx.run_id):
-                    completion: Completion = client.complete(
-                        messages,
-                        temperature=params.get("temperature"),
-                        max_tokens=params.get("max_tokens"),
-                    )
+                completion = _invoke(messages, params=params)
                 return completion
 
             results: List[Any] = []
@@ -546,14 +683,15 @@ def _execute_chain_steps(ctx: RuntimeContext, inputs: InputCollections) -> Execu
                 for fut in as_completed(futures):
                     try:
                         comp = fut.result()
-                        metrics["tokens_prompt"] += comp.prompt_tokens or 0
-                        metrics["tokens_completion"] += comp.completion_tokens or 0
                         results.append(comp.text)
                     except Exception:
                         errors += 1
                         if not chain.continue_on_error:
                             raise
             context_all[step.output] = results
+            aggregated = _summarise(step_telemetries, default_mode=step_mode)
+            step_telemetry[step.id] = aggregated
+            _update_totals(aggregated)
             continue
 
         if inputs.input_mode == "images_group":
@@ -563,17 +701,17 @@ def _execute_chain_steps(ctx: RuntimeContext, inputs: InputCollections) -> Execu
                     "group": {"size": len(group_docs), "source_uris": [d.source_uri for d in group_docs]},
                     "all": {k: v for k, v in context_all.items()},
                 }
-                inputs_rendered = {k: _interp(v, {**vars_ctx}) for k, v in (step.inputs or {}).items()}
-                ctx_dict = {**vars_ctx, "inputs": inputs_rendered}
+                rendered_inputs = {k: _interp(v, {**vars_ctx}) for k, v in (step.inputs or {}).items()}
+                ctx_dict = {**vars_ctx, "inputs": rendered_inputs}
                 extra_inputs, rag_text_block, rag_images = _prepare_rag_context(
                     step.rag,
                     pipelines=rag_pipelines,
                     records=rag_records,
                     ctx=ctx_dict,
                 )
-                inputs_rendered.update(extra_inputs)
+                rendered_inputs.update(extra_inputs)
                 body = tmpl
-                for k, v in inputs_rendered.items():
+                for k, v in rendered_inputs.items():
                     body = body.replace("{{ " + k + " }}", str(v))
                     body = body.replace("${" + k + "}", str(v))
                 if rag_text_block:
@@ -596,28 +734,25 @@ def _execute_chain_steps(ctx: RuntimeContext, inputs: InputCollections) -> Execu
                     Message(role="user", content=parts),
                 ]
                 params = step.params or {}
-                with trace_span(f"step.{step.id}", step_id=step.id, run_id=ctx.run_id):
-                    return client.complete(
-                        messages,
-                        temperature=params.get("temperature"),
-                        max_tokens=params.get("max_tokens"),
-                    )
+                completion = _invoke(messages, params=params)
+                return completion
 
-            results: List[Any] = []
+            results = []
             errors = 0
             with ThreadPoolExecutor(max_workers=max(1, int(chain.concurrency))) as ex:
                 futures = {ex.submit(run_one_group, group): group for group in inputs.image_groups}
                 for fut in as_completed(futures):
                     try:
                         comp = fut.result()
-                        metrics["tokens_prompt"] += comp.prompt_tokens or 0
-                        metrics["tokens_completion"] += comp.completion_tokens or 0
                         results.append(comp.text)
                     except Exception:
                         errors += 1
                         if not chain.continue_on_error:
                             raise
             context_all[step.output] = results
+            aggregated = _summarise(step_telemetries, default_mode=step_mode)
+            step_telemetry[step.id] = aggregated
+            _update_totals(aggregated)
             continue
 
         def run_one_chunk(chunk: Chunk):
@@ -628,17 +763,17 @@ def _execute_chain_steps(ctx: RuntimeContext, inputs: InputCollections) -> Execu
             }
             if doc is not None:
                 vars_ctx["document"] = doc.to_serializable()
-            inputs_rendered = {k: _interp(v, {**vars_ctx}) for k, v in (step.inputs or {}).items()}
-            ctx_dict = {**vars_ctx, "inputs": inputs_rendered}
+            rendered_inputs = {k: _interp(v, {**vars_ctx}) for k, v in (step.inputs or {}).items()}
+            ctx_dict = {**vars_ctx, "inputs": rendered_inputs}
             extra_inputs, rag_text_block, rag_images = _prepare_rag_context(
                 step.rag,
                 pipelines=rag_pipelines,
                 records=rag_records,
                 ctx=ctx_dict,
             )
-            inputs_rendered.update(extra_inputs)
+            rendered_inputs.update(extra_inputs)
             body = tmpl
-            for k, v in inputs_rendered.items():
+            for k, v in rendered_inputs.items():
                 body = body.replace("{{ " + k + " }}", str(v))
                 body = body.replace("${" + k + "}", str(v))
             if rag_text_block:
@@ -668,12 +803,9 @@ def _execute_chain_steps(ctx: RuntimeContext, inputs: InputCollections) -> Execu
                     Message(role="user", content=body),
                 ]
             params = step.params or {}
-            with trace_span(f"step.{step.id}", step_id=step.id, run_id=ctx.run_id):
-                completion: Completion = client.complete(
-                    messages,
-                    temperature=params.get("temperature"),
-                    max_tokens=params.get("max_tokens"),
-                )
+            completion = _invoke(messages, params=params)
+            prompt_tokens = getattr(completion, "prompt_tokens", None)
+            completion_tokens = getattr(completion, "completion_tokens", None)
             if (step.output_expects or "").lower() == "json":
                 retries = max(0, int(step.output_parse_retries or 0))
                 parsed, err = _try_parse_json(completion.text)
@@ -688,11 +820,15 @@ def _execute_chain_steps(ctx: RuntimeContext, inputs: InputCollections) -> Execu
                         _metrics.inc(f"json_parse_failures.{step.id}", 1)
                     except Exception:
                         pass
-                    return type("C", (), {
-                        "text": {"parse_error": True, "raw_text": completion.text},
-                        "prompt_tokens": completion.prompt_tokens,
-                        "completion_tokens": completion.completion_tokens,
-                    })()
+                    return type(
+                        "C",
+                        (),
+                        {
+                            "text": {"parse_error": True, "raw_text": completion.text},
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
+                        },
+                    )()
                 ok, schema_err = _validate_min_schema(parsed, step.output_schema)
                 if not ok:
                     try:
@@ -700,20 +836,28 @@ def _execute_chain_steps(ctx: RuntimeContext, inputs: InputCollections) -> Execu
                         _metrics.inc(f"json_parse_failures.{step.id}", 1)
                     except Exception:
                         pass
-                    return type("C", (), {
-                        "text": {
-                            "parse_error": True,
-                            "raw_text": completion.text,
-                            "schema_error": schema_err,
+                    return type(
+                        "C",
+                        (),
+                        {
+                            "text": {
+                                "parse_error": True,
+                                "raw_text": completion.text,
+                                "schema_error": schema_err,
+                            },
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
                         },
-                        "prompt_tokens": completion.prompt_tokens,
-                        "completion_tokens": completion.completion_tokens,
-                    })()
-                return type("C", (), {
-                    "text": parsed,
-                    "prompt_tokens": completion.prompt_tokens,
-                    "completion_tokens": completion.completion_tokens,
-                })()
+                    )()
+                return type(
+                    "C",
+                    (),
+                    {
+                        "text": parsed,
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                    },
+                )()
             return completion
 
         results: List[Any] = []
@@ -723,16 +867,38 @@ def _execute_chain_steps(ctx: RuntimeContext, inputs: InputCollections) -> Execu
             for fut in as_completed(futures):
                 try:
                     comp = fut.result()
-                    metrics["tokens_prompt"] += comp.prompt_tokens or 0
-                    metrics["tokens_completion"] += comp.completion_tokens or 0
                     results.append(comp.text)
                 except Exception:
                     errors += 1
                     if not chain.continue_on_error:
                         raise
         context_all[step.output] = results
+        aggregated = _summarise(step_telemetries, default_mode=step_mode)
+        step_telemetry[step.id] = aggregated
+        _update_totals(aggregated)
 
-    return ExecutionResult(context_all=context_all, metrics=metrics, prompts_used=prompts_used)
+    calls_total = totals["calls"]
+    if calls_total:
+        metrics["time_to_first_byte_ms_avg"] = int(totals["time_to_first_byte_ms_sum"] / calls_total)
+        metrics["latency_ms_avg"] = int(totals["latency_ms_sum"] / calls_total)
+    else:
+        metrics["time_to_first_byte_ms_avg"] = 0
+        metrics["latency_ms_avg"] = 0
+    metrics["inference_calls"] = calls_total
+    metrics["streaming_calls"] = totals["streaming_calls"]
+    metrics["streaming_used"] = totals["streaming_calls"] > 0
+    metrics["chunks_emitted"] = totals["chunk_count"]
+    metrics["retries_total"] = totals["retries"]
+    if totals["tokens_out_known_calls"]:
+        metrics["tokens_out_sum"] = totals["tokens_out_sum"]
+
+    return ExecutionResult(
+        context_all=context_all,
+        metrics=metrics,
+        prompts_used=prompts_used,
+        step_telemetry=step_telemetry,
+    )
+
 
 
 def _serialize_jsonl(values: List[Any], *, run_id: str) -> bytes:
@@ -883,6 +1049,7 @@ def _finalize_run(
             else ctx.inference_cfg.get("provider"),
         },
         "metrics": {**exec_result.metrics, **_metrics.get_all(), "cost_estimate_usd": cost},
+        "step_telemetry": exec_result.step_telemetry,
         "artefacts": artefacts_list,
     }
 
@@ -960,6 +1127,7 @@ def _finalize_run(
         "artefacts": artefact_paths,
         "run_dir": run_dir,
         "metrics": {**exec_result.metrics, **_metrics.get_all()},
+        "step_telemetry": exec_result.step_telemetry,
     }
 
 

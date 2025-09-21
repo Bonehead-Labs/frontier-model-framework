@@ -39,6 +39,7 @@ class FMF:
         return_records: bool = False,
         connector: str | None = None,
         rag_options: Dict[str, Any] | None = None,
+        mode: str | None = None,
     ) -> Optional[List[Dict[str, Any]]]:
         filename = os.path.basename(input)
         c = connector or self._auto_connector_name()
@@ -56,6 +57,21 @@ class FMF:
 
         rag_cfg = _build_rag_block(rag_options, default_text_var="rag_context", default_image_var="rag_images")
 
+        step = {
+            "id": "analyse",
+            "prompt": (
+                "inline: Return a JSON object with fields 'id' and 'analysed'.\n"
+                "Only output valid JSON, nothing else.\n\n"
+                "ID: {{ id }}\n"
+                "Comment:\n{{ text }}\n"
+            ),
+            "inputs": {"id": f"${{row.{id_col}}}", "text": "${row.text}"},
+            "output": output_block,
+            **({"rag": rag_cfg} if rag_cfg else {}),
+        }
+        if mode:
+            step["infer"] = {"mode": mode}
+
         chain = {
             "name": "csv-analyse",
             "inputs": {
@@ -64,20 +80,7 @@ class FMF:
                 "mode": "table_rows",
                 "table": {"text_column": text_col, "pass_through": [id_col]},
             },
-            "steps": [
-                {
-                    "id": "analyse",
-                    "prompt": (
-                        "inline: Return a JSON object with fields 'id' and 'analysed'.\n"
-                        "Only output valid JSON, nothing else.\n\n"
-                        "ID: {{ id }}\n"
-                        "Comment:\n{{ text }}\n"
-                    ),
-                    "inputs": {"id": f"${{row.{id_col}}}", "text": "${row.text}"},
-                    "output": output_block,
-                    **({"rag": rag_cfg} if rag_cfg else {}),
-                }
-            ],
+            "steps": [step],
             "outputs": [
                 {"save": save_jsonl, "from": "analysed", "as": "jsonl"},
                 {"save": save_csv, "from": "analysed", "as": "csv"},
@@ -110,6 +113,7 @@ class FMF:
         expects_json: bool = True,
         return_records: bool = False,
         rag_options: Dict[str, Any] | None = None,
+        mode: str | None = None,
     ) -> Optional[List[Dict[str, Any]]]:
         c = connector or self._auto_connector_name()
         save_jsonl = save_jsonl or "artefacts/${run_id}/text_outputs.jsonl"
@@ -120,6 +124,7 @@ class FMF:
             save_jsonl=save_jsonl,
             expects_json=expects_json,
             rag_options=rag_options,
+            mode=mode,
         )
         res = run_chain_config(chain, fmf_config_path=self._config_path or "fmf.yaml")
         if not return_records:
@@ -138,6 +143,7 @@ class FMF:
         group_size: int | None = None,
         return_records: bool = False,
         rag_options: Dict[str, Any] | None = None,
+        mode: str | None = None,
     ) -> Optional[List[Dict[str, Any]]]:
         c = connector or self._auto_connector_name()
         save_jsonl = save_jsonl or "artefacts/${run_id}/image_outputs.jsonl"
@@ -150,6 +156,7 @@ class FMF:
                 expects_json=expects_json,
                 group_size=group_size,
                 rag_options=rag_options,
+                mode=mode,
             )
         else:
             chain = _build_images_chain(
@@ -159,6 +166,7 @@ class FMF:
                 save_jsonl=save_jsonl,
                 expects_json=expects_json,
                 rag_options=rag_options,
+                mode=mode,
             )
         res = run_chain_config(chain, fmf_config_path=self._config_path or "fmf.yaml")
         if not return_records:
@@ -175,6 +183,7 @@ class FMF:
         rag_top_k_text: int | None = None,
         rag_top_k_images: int | None = None,
         use_recipe_rag: bool | None = None,
+        mode: str | None = None,
     ) -> dict:
         """Run a high-level recipe YAML (csv_analyse | text_files | images_analyse).
 
@@ -210,6 +219,8 @@ class FMF:
             if rag_top_k_images is not None:
                 rag_options["top_k_images"] = rag_top_k_images
 
+        effective_mode = mode or data.get("mode")
+
         if rtype == "csv_analyse":
             return {
                 "result": self.csv_analyse(
@@ -221,6 +232,7 @@ class FMF:
                     save_jsonl=(data.get("save") or {}).get("jsonl"),
                     connector=data.get("connector"),
                     rag_options=rag_options,
+                    mode=effective_mode,
                 )
             }
         if rtype == "text_files":
@@ -232,6 +244,7 @@ class FMF:
                     save_jsonl=(data.get("save") or {}).get("jsonl"),
                     expects_json=bool(data.get("expects_json", True)),
                     rag_options=rag_options,
+                    mode=effective_mode,
                 )
             }
         if rtype == "images_analyse":
@@ -244,6 +257,7 @@ class FMF:
                     expects_json=bool(data.get("expects_json", True)),
                     group_size=int(data.get("group_size", 0) or 0) or None,
                     rag_options=rag_options,
+                    mode=effective_mode,
                 )
             }
         raise ValueError(f"Unsupported or missing recipe type: {rtype!r}")
@@ -285,6 +299,7 @@ def _build_text_chain(
     save_jsonl: str | None,
     expects_json: bool,
     rag_options: Dict[str, Any] | None = None,
+    mode: str | None = None,
 ) -> Dict[str, Any]:
     output_block: Any = "result"
     if expects_json:
@@ -295,6 +310,8 @@ def _build_text_chain(
         "inputs": {"text": "${chunk.text}"},
         "output": output_block,
     }
+    if mode:
+        step["infer"] = {"mode": mode}
     rag_cfg = _build_rag_block(rag_options, default_text_var="rag_context", default_image_var="rag_images")
     if rag_cfg:
         step["rag"] = rag_cfg
@@ -314,6 +331,7 @@ def _build_images_chain(
     save_jsonl: str | None,
     expects_json: bool,
     rag_options: Dict[str, Any] | None = None,
+    mode: str | None = None,
 ) -> Dict[str, Any]:
     output_block: Any = "analysis"
     if expects_json:
@@ -325,6 +343,8 @@ def _build_images_chain(
         "inputs": {},
         "output": output_block,
     }
+    if mode:
+        step["infer"] = {"mode": mode}
     rag_cfg = _build_rag_block(rag_options, default_text_var="rag_context", default_image_var="rag_samples")
     if rag_cfg:
         step["rag"] = rag_cfg
@@ -345,6 +365,7 @@ def _build_images_group_chain(
     expects_json: bool,
     group_size: int,
     rag_options: Dict[str, Any] | None = None,
+    mode: str | None = None,
 ) -> Dict[str, Any]:
     output_block: Any = "analysis"
     if expects_json:
@@ -356,6 +377,8 @@ def _build_images_group_chain(
         "inputs": {},
         "output": output_block,
     }
+    if mode:
+        step["infer"] = {"mode": mode}
     rag_cfg = _build_rag_block(rag_options, default_text_var="rag_context", default_image_var="rag_samples")
     if rag_cfg:
         step["rag"] = rag_cfg

@@ -14,6 +14,7 @@ class ChainStep:
     output: str
     params: Optional[Dict[str, Any]] = None
     mode: Optional[str] = None  # e.g., 'multimodal'
+    infer_mode: Optional[str] = None
     # Post-processing expectations
     output_expects: Optional[str] = None  # 'json' | None
     output_schema: Optional[Dict[str, Any]] = None
@@ -61,6 +62,7 @@ def load_chain(path: str) -> ChainConfig:
                 output=output_name,
                 params=s.get("params"),
                 mode=s.get("mode"),
+                infer_mode=(s.get("infer") or {}).get("mode") if isinstance(s.get("infer"), dict) else None,
                 output_expects=output_expects,
                 output_schema=output_schema,
                 output_parse_retries=output_parse_retries,
