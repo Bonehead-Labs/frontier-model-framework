@@ -3,18 +3,11 @@
 
 import subprocess
 import sys
-import warnings
 from pathlib import Path
 
 
 def main() -> int:
     """Delegate to the unified FMF CLI."""
-    # Show deprecation warning
-    warnings.warn(
-        "This script is deprecated. Use 'fmf text' instead.",
-        DeprecationWarning,
-        stacklevel=2
-    )
     
     # Get the script directory to find the fmf CLI
     script_dir = Path(__file__).parent
@@ -33,11 +26,7 @@ def main() -> int:
         while i < len(args):
             arg = args[i]
             
-            if arg in ["-r", "--recipe"]:
-                # Legacy recipe mode - show error
-                print("Error: Recipe mode is no longer supported. Use 'fmf text' instead.", file=sys.stderr)
-                return 1
-            elif arg in ["-c", "--config"]:
+            if arg in ["-c", "--config"]:
                 new_args.extend(["-c", args[i + 1]])
                 i += 2
             elif arg == "--json":

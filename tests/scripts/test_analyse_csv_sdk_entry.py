@@ -144,29 +144,6 @@ class TestAnalyseCsvSDKEntry:
                     # Should call with_response
                     mock_fmf.with_response.assert_called_once_with('csv')
 
-    def test_legacy_recipe_mode_with_deprecation_warning(self):
-        """Test that legacy recipe mode shows deprecation warning."""
-        with patch('sys.argv', [
-            'analyse_csv.py',
-            '--recipe', 'test.yaml',
-            '--input', 'test.csv',
-            '--text-col', 'Comment',
-            '--id-col', 'ID',
-            '--prompt', 'Test prompt'
-        ]):
-            with patch('warnings.warn') as mock_warn:
-                with patch('analyse_csv._run_recipe_mode', return_value=0) as mock_recipe:
-                    result = analyse_csv.main()
-                    
-                    # Should show deprecation warning
-                    mock_warn.assert_called_once()
-                    warning_call = mock_warn.call_args
-                    assert "Recipe mode is deprecated" in warning_call[0][0]
-                    assert warning_call[0][1] == DeprecationWarning
-                    
-                    # Should call recipe mode
-                    mock_recipe.assert_called_once()
-                    assert result == 0
 
     def test_missing_input_file_returns_error(self):
         """Test that missing input file returns error."""

@@ -3,18 +3,11 @@
 
 import subprocess
 import sys
-import warnings
 from pathlib import Path
 
 
 def main() -> int:
     """Delegate to the unified FMF CLI."""
-    # Show deprecation warning
-    warnings.warn(
-        "This script is deprecated. Use 'fmf csv analyse' instead.",
-        DeprecationWarning,
-        stacklevel=2
-    )
     
     # Get the script directory to find the fmf CLI
     script_dir = Path(__file__).parent
@@ -78,10 +71,6 @@ def main() -> int:
             elif arg == "--json":
                 # JSON output is handled differently in the new CLI
                 i += 1
-            elif arg in ["-r", "--recipe"]:
-                # Legacy recipe mode - show error
-                print("Error: Recipe mode is no longer supported. Use 'fmf csv analyse' instead.", file=sys.stderr)
-                return 1
             elif arg in ["-h", "--help"]:
                 # Show help for the new CLI
                 try:

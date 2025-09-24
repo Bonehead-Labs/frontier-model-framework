@@ -84,53 +84,6 @@ class TestConfigIntegration(unittest.TestCase):
             call_args = mock_run.call_args
             self.assertEqual(call_args[1]['fmf_config'], effective_config)
 
-    def test_recipe_runner_uses_effective_config(self):
-        """Test that recipe runner uses effective config internally."""
-        from src.fmf.sdk.orchestrators import run_recipe_simple_with_config
-        
-        # Create effective config
-        effective_config = EffectiveConfig(
-            project="test-project",
-            artefacts_dir=str(self.temp_path / "artefacts"),
-            inference={"provider": "azure_openai"}
-        )
-        
-        # Create a recipe file
-        recipe_data = {
-            "recipe": "csv_analyse",
-            "input": "test.csv",
-            "id_col": "ID",
-            "text_col": "Comment",
-            "prompt": "Test prompt"
-        }
-        
-        recipe_path = self.temp_path / "recipe.yaml"
-        import yaml
-        with open(recipe_path, 'w') as f:
-            yaml.safe_dump(recipe_data, f)
-        
-        # Mock the FMF methods to avoid real execution
-        with patch('src.fmf.sdk.orchestrators.FMF') as mock_fmf_class:
-            mock_fmf = MagicMock()
-            mock_fmf_class.from_env.return_value = mock_fmf
-            mock_fmf._get_effective_config.return_value = effective_config
-            mock_fmf._rag_override = None
-            mock_fmf._service_override = None
-            mock_fmf._response_override = None
-            mock_fmf._source_override = None
-            
-            # Mock the csv_analyse method
-            mock_fmf.csv_analyse.return_value = None
-            
-            # Should work with config object
-            result = run_recipe_simple_with_config(
-                effective_config,
-                str(recipe_path)
-            )
-            
-            # Should have used the config object
-            mock_fmf_class.from_env.assert_called_once_with(effective_config)
-            mock_fmf.csv_analyse.assert_called_once()
 
     def test_legacy_file_path_still_works(self):
         """Test that legacy file path approach still works."""

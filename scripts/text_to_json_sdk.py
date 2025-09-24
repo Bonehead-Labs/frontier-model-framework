@@ -52,20 +52,7 @@ Examples:
     ap.add_argument("--expects-json", action="store_true", default=True, help="Expect JSON output from LLM")
     ap.add_argument("--no-expects-json", dest="expects_json", action="store_false", help="Don't expect JSON output from LLM")
     
-    # Legacy recipe support (deprecated)
-    ap.add_argument("-r", "--recipe", help="[DEPRECATED] Path to recipe YAML - use fluent API instead")
-    
     args = ap.parse_args()
-    
-    # Handle legacy recipe mode
-    if args.recipe:
-        warnings.warn(
-            "Recipe mode is deprecated. Use fluent API arguments instead. "
-            "Recipes are recommended for CI/Ops only.",
-            DeprecationWarning,
-            stacklevel=2
-        )
-        return _run_recipe_mode(args)
     
     # Validate input file(s) exist
     input_path = Path(args.input)
@@ -152,29 +139,6 @@ Examples:
         else:
             print(f"Error: {e}")
         return 1
-
-
-def _run_recipe_mode(args) -> int:
-    """Legacy recipe mode - kept for backward compatibility."""
-    from fmf.sdk import run_recipe_simple
-    
-    summary = run_recipe_simple(
-        args.config,
-        args.recipe,
-        use_recipe_rag=args.enable_rag,
-        rag_pipeline=args.rag_pipeline,
-        rag_top_k_text=args.rag_top_k_text,
-        rag_top_k_images=args.rag_top_k_images,
-        mode=args.mode,
-    )
-
-    if args.json:
-        print(json.dumps(summary.__dict__, separators=(",", ":")))
-    else:
-        status = "OK" if summary.ok else "ERROR"
-        run_id = summary.run_id or ""
-        print(f"{status} {run_id}")
-    return 0 if summary.ok else 1
 
 
 if __name__ == "__main__":

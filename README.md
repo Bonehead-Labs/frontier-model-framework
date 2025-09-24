@@ -88,18 +88,18 @@ fmf = (FMF.from_env("fmf.yaml")
        .defaults(service="azure_openai", rag={"pipeline": "documents"}))
 ```
 
-### Fluent API vs CLI/Recipes Mapping
+### Fluent API vs CLI Mapping
 
-| Fluent API Method | CLI Equivalent | Recipe Equivalent | Description |
-|------------------|----------------|-------------------|-------------|
-| `with_service("azure_openai")` | `--set inference.provider=azure_openai` | `inference.provider: azure_openai` | Configure inference provider |
-| `with_rag(enabled=True, pipeline="docs")` | `--enable-rag --rag-pipeline docs` | `rag.pipelines[0].name: docs` | Enable RAG with pipeline |
-| `with_response("csv")` | `--set export.sinks[0].format=csv` | `export.sinks[0].format: csv` | Set output format |
-| `with_source("s3", bucket="my-bucket")` | `--set connectors[0].type=s3` | `connectors[0].type: s3` | Configure data source |
-| `run_inference("csv", "analyse", ...)` | `fmf csv analyse` | `recipe: csv_analyse` | Execute inference |
-| `csv_analyse(...)` | `fmf csv analyse` | `recipe: csv_analyse` | CSV analysis shortcut |
-| `text_to_json(...)` | `fmf text infer` | `recipe: text_files` | Text processing shortcut |
-| `images_analyse(...)` | `fmf images analyse` | `recipe: images_analyse` | Image analysis shortcut |
+| Fluent API Method | CLI Equivalent | Description |
+|------------------|----------------|-------------|
+| `with_service("azure_openai")` | `--set inference.provider=azure_openai` | Configure inference provider |
+| `with_rag(enabled=True, pipeline="docs")` | `--enable-rag --rag-pipeline docs` | Enable RAG with pipeline |
+| `with_response("csv")` | `--set export.sinks[0].format=csv` | Set output format |
+| `with_source("s3", bucket="my-bucket")` | `--set connectors[0].type=s3` | Configure data source |
+| `run_inference("csv", "analyse", ...)` | `fmf csv analyse` | Execute inference |
+| `csv_analyse(...)` | `fmf csv analyse` | CSV analysis shortcut |
+| `text_to_json(...)` | `fmf text infer` | Text processing shortcut |
+| `images_analyse(...)` | `fmf images analyse` | Image analysis shortcut |
 
 ### Configuration Precedence & In-Memory Merge
 
@@ -107,8 +107,7 @@ FMF uses a sophisticated configuration system that merges multiple sources with 
 
 **Precedence Order (highest to lowest):**
 1. **Fluent API overrides** - Programmatic configuration via `.with_service()`, `.with_rag()`, etc.
-2. **Recipe YAML** - Recipe-specific configuration (optional)
-3. **Base YAML config** - Default configuration from `fmf.yaml`
+2. **Base YAML config** - Default configuration from `fmf.yaml`
 
 **In-Memory Processing:**
 - Configurations are merged in-memory using Pydantic models for type safety and validation
@@ -119,10 +118,9 @@ FMF uses a sophisticated configuration system that merges multiple sources with 
 **Example:**
 ```python
 # Base config: inference.provider = "azure_openai", temperature = 0.1
-# Recipe config: temperature = 0.5
 # Fluent override: provider = "aws_bedrock"
 
-# Result: provider = "aws_bedrock" (fluent wins), temperature = 0.5 (recipe wins)
+# Result: provider = "aws_bedrock" (fluent wins), temperature = 0.1 (base config)
 fmf = (FMF.from_env("fmf.yaml")
        .with_service("aws_bedrock"))  # Fluent override
 ```
@@ -190,20 +188,10 @@ python scripts/analyse_csv.py --input ./data/comments.csv --text-col Comment --i
 python scripts/analyse_csv.py --input ./data/comments.csv --text-col Comment --id-col ID --prompt "Analyze" --service azure_openai --output-format jsonl
 ```
 
-Legacy Recipe Wrappers (Deprecated)
-```
-# Recipe-based workflows (thin scripts) - DEPRECATED
-python scripts/analyse_csv_recipe.py -r examples/recipes/csv_analyse.yaml -c fmf.yaml
-python scripts/images_multi.py -r examples/recipes/images_multi.yaml -c fmf.yaml
-python scripts/text_to_json.py -r examples/recipes/text_to_json.yaml -c fmf.yaml
-```
-
 CLI Convenience
 ```
 uv run fmf csv analyse --input ./data/comments.csv --text-col Comment --id-col ID --prompt "Summarise" -c fmf.yaml
 ```
-
-**Note:** Recipe-based scripts are deprecated in favor of fluent API scripts. Recipes are now recommended for CI/Ops only.
 
 4) Run the processing and sample chain (via uv):
 
