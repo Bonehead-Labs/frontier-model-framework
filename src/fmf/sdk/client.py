@@ -354,6 +354,160 @@ class FMF:
                 metadata={"method": "images_analyse"}
             )
 
+    def dataframe_analyse(
+        self,
+        *,
+        df: "pd.DataFrame",
+        text_col: str,
+        id_col: str | None = None,
+        prompt: str,
+        expects_json: bool = True,
+        parse_retries: int = 1,
+        return_records: bool = False,
+        save_csv: str | None = None,
+        save_jsonl: str | None = None,
+        rag_options: Dict[str, Any] | None = None,
+        mode: str | None = None,
+    ) -> RunResult:
+        """Analyze a pandas DataFrame using FMF inference.
+        
+        Args:
+            df: pandas DataFrame to analyze
+            text_col: Column name containing text to analyze
+            id_col: Column name for unique identifiers (optional, will use index if not provided)
+            prompt: Analysis prompt template
+            expects_json: Whether to expect JSON output
+            parse_retries: Number of retries for JSON parsing
+            return_records: Whether to return processed records in result
+            save_csv: Path to save CSV output (optional)
+            save_jsonl: Path to save JSONL output (optional)
+            rag_options: RAG configuration options
+            mode: Inference mode (auto, regular, stream)
+            
+        Returns:
+            RunResult with analysis results and metadata
+        """
+        try:
+            import pandas as pd
+        except ImportError:
+            raise ImportError("pandas is required for DataFrame analysis. Install with: pip install pandas")
+        
+        if not isinstance(df, pd.DataFrame):
+            raise ValueError("df must be a pandas DataFrame")
+        
+        if text_col not in df.columns:
+            raise ValueError(f"Text column '{text_col}' not found in DataFrame. Available columns: {list(df.columns)}")
+        
+        # Use index as ID if no ID column specified
+        if id_col is None:
+            id_col = "index"
+            df = df.copy()
+            df[id_col] = df.index.astype(str)
+        elif id_col not in df.columns:
+            raise ValueError(f"ID column '{id_col}' not found in DataFrame. Available columns: {list(df.columns)}")
+        
+        self._logger.info("Starting DataFrame analysis", 
+                         rows=len(df), 
+                         text_col=text_col, 
+                         id_col=id_col,
+                         prompt_length=len(prompt))
+        
+        # Convert DataFrame to rows format expected by chain runner
+        rows = []
+        for idx, row in df.iterrows():
+            row_data = {
+                "id": str(row[id_col]),
+                "text": str(row[text_col]),
+            }
+            # Include all other columns as pass-through data
+            for col in df.columns:
+                if col not in [text_col, id_col]:
+                    row_data[col] = row[col]
+            rows.append(row_data)
+        
+        # Build chain configuration for DataFrame processing
+        save_csv = save_csv or "artefacts/${run_id}/dataframe_analysis.csv"
+        save_jsonl = save_jsonl or "artefacts/${run_id}/dataframe_analysis.jsonl"
+        
+        output_block: Any = "analysed"
+        if expects_json:
+            output_block = {
+                "name": "analysed",
+                "expects": "json",
+                "parse_retries": parse_retries,
+                "schema": {"type": "object", "required": ["id", "analysed"]},
+            }
+
+        rag_cfg = _build_rag_block(rag_options, default_text_var="rag_context", default_image_var="rag_images")
+
+        step = {
+            "id": "analyse",
+            "prompt": (
+                "inline: Return a JSON object with fields 'id' and 'analysed'.\n"
+                "Only output valid JSON, nothing else.\n\n"
+                "ID: {{ id }}\n"
+                "Text:\n{{ text }}\n"
+            ),
+            "inputs": {"id": "${row.id}", "text": "${row.text}"},
+            "output": output_block,
+            **({"rag": rag_cfg} if rag_cfg else {}),
+        }
+        if mode:
+            step["infer"] = {"mode": mode}
+
+        # Create a custom chain that processes DataFrame rows directly
+        chain = {
+            "name": "dataframe-analyse",
+            "inputs": {
+                "mode": "dataframe_rows",  # Custom mode for DataFrame processing
+                "rows": rows,  # Pass rows directly
+            },
+            "steps": [step],
+            "outputs": [
+                {"save": save_jsonl, "from": "analysed", "as": "jsonl"},
+                {"save": save_csv, "from": "analysed", "as": "csv"},
+            ],
+            "concurrency": 4,
+            "continue_on_error": True,
+        }
+
+        start_time = time.time()
+        try:
+            self._logger.debug("Executing DataFrame analysis chain")
+            res = self._run_chain_with_effective_config(chain)
+            end_time = time.time()
+            
+            duration_ms = (end_time - start_time) * 1000
+            self._logger.info("DataFrame analysis completed successfully", 
+                             duration_ms=duration_ms,
+                             run_id=res.get("run_id", "unknown"))
+            
+            return _build_run_result(
+                chain_result=res,
+                start_time=start_time,
+                end_time=end_time,
+                method_name="dataframe_analyse",
+                fmf_instance=self,
+                return_records=return_records,
+                save_csv=save_csv,
+                save_jsonl=save_jsonl,
+            )
+        except Exception as e:
+            end_time = time.time()
+            duration_ms = (end_time - start_time) * 1000
+            self._logger.error("DataFrame analysis failed", 
+                              error=str(e), 
+                              duration_ms=duration_ms)
+            return RunResult(
+                success=False,
+                run_id="unknown",
+                start_time=start_time,
+                end_time=end_time,
+                error=str(e),
+                error_details={"exception_type": type(e).__name__},
+                metadata={"method": "dataframe_analyse"}
+            )
+
     # --- Recipe runner ---
     def run_recipe(
         self,

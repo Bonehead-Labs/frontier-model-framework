@@ -318,20 +318,27 @@ def _prepare_environment(
             raise ConfigError(str(err)) from err
         env_mode_override = True
 
-    connectors_cfg = getattr(cfg, "connectors", None) if not isinstance(cfg, dict) else cfg.get("connectors")
-    if not connectors_cfg:
-        raise RuntimeError("No connectors configured")
+    # Check if this is DataFrame mode (no connector needed)
+    input_mode = chain.inputs.get("mode") if isinstance(chain.inputs, dict) else None
+    if input_mode == "dataframe_rows":
+        # DataFrame mode doesn't need a connector
+        connector = None
+        connectors_cfg = []
+    else:
+        connectors_cfg = getattr(cfg, "connectors", None) if not isinstance(cfg, dict) else cfg.get("connectors")
+        if not connectors_cfg:
+            raise RuntimeError("No connectors configured")
 
-    conn_name = chain.inputs.get("connector")
-    target = None
-    for c in connectors_cfg:
-        nm = getattr(c, "name", None) if not isinstance(c, dict) else c.get("name")
-        if nm == conn_name:
-            target = c
-            break
-    if not target:
-        raise RuntimeError(f"Connector {conn_name!r} not found")
-    connector = build_connector(target)
+        conn_name = chain.inputs.get("connector")
+        target = None
+        for c in connectors_cfg:
+            nm = getattr(c, "name", None) if not isinstance(c, dict) else c.get("name")
+            if nm == conn_name:
+                target = c
+                break
+        if not target:
+            raise RuntimeError(f"Connector {conn_name!r} not found")
+        connector = build_connector(target)
 
     preg_cfg = getattr(cfg, "prompt_registry", None) if not isinstance(cfg, dict) else cfg.get("prompt_registry")
     registry = build_prompt_registry(preg_cfg)
@@ -368,6 +375,18 @@ def _collect_inputs(ctx: RuntimeContext) -> InputCollections:
     processing_cfg = ctx.processing_cfg
 
     collections = InputCollections(input_mode=(chain.inputs or {}).get("mode") if isinstance(chain.inputs, dict) else None)
+
+    # Handle DataFrame mode (no connector needed)
+    if collections.input_mode == "dataframe_rows":
+        dataframe_rows = chain.inputs.get("rows", [])
+        for index, row in enumerate(dataframe_rows):
+            collections.rows.append({
+                "__doc_id": f"dataframe_row_{index}",
+                "__source_uri": "dataframe://",
+                "__row_index": index,
+                **row,
+            })
+        return collections
 
     selector = chain.inputs.get("select")
 

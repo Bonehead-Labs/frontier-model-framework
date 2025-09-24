@@ -47,6 +47,17 @@ with fmf as f:
         prompt="Analyze sentiment"
     )
     print(f"Success: {result.success}, Records: {result.records_processed}")
+
+# DataFrame analysis (requires pandas)
+import pandas as pd
+df = pd.read_csv("./data/comments.csv")
+result = fmf.dataframe_analyse(
+    df=df,
+    text_col="Comment", 
+    id_col="ID", 
+    prompt="Analyze sentiment and extract themes"
+)
+print(f"DataFrame processed: {result.records_processed} records")
 ```
 
 ## CLI Quickstart
@@ -88,6 +99,7 @@ fmf = (FMF.from_env("fmf.yaml")
 ## Examples
 
 - **CSV Analysis**: `examples/analyse_csv.py` - [Usage Guide](docs/usage/csv_analyse.md)
+- **DataFrame Analysis**: `examples/dataframe_analyse.py` - [Usage Guide](docs/usage/dataframe_analyse.md)
 - **Text Processing**: `examples/text_to_json.py` - [Usage Guide](docs/usage/text_to_json.md)
 - **Image Analysis**: `examples/images_analyse.py` - [Usage Guide](docs/usage/images_analyse.md)
 - **SDK Demo**: `examples/sdk_demo.py` - Comprehensive SDK examples
