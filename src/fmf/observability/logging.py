@@ -5,8 +5,7 @@ import logging
 import re
 import time
 from contextlib import contextmanager
-from typing import Any, Dict, Optional, Union
-from pathlib import Path
+from typing import Any, Dict, Optional
 
 # Configure the root logger for FMF
 logger = logging.getLogger("fmf")
@@ -24,14 +23,14 @@ if not logger.handlers:
 
 class FMFLogger:
     """Structured logger for FMF operations with secret redaction."""
-    
+
     def __init__(self, name: str = "fmf", verbose: bool = False):
         self.logger = logging.getLogger(name)
         if verbose:
             self.logger.setLevel(logging.DEBUG)
         else:
             self.logger.setLevel(logging.INFO)
-        
+
         # Secret patterns to redact (quoted patterns first to avoid conflicts)
         self.secret_patterns = [
             r'(?i)(api[_-]?key|secret|password|token|auth[_-]?key)\s*=\s*"([^"]+)"',
@@ -43,7 +42,7 @@ class FMFLogger:
             r'(?i)(openai[_-]?api[_-]?key|bedrock[_-]?api[_-]?key|azure[_-]?api[_-]?key)\s*=\s*([^\s]+)',
             r'(?i)(openai[_-]?api[_-]?key|bedrock[_-]?api[_-]?key|azure[_-]?api[_-]?key)\s*:\s*([^\s]+)',
         ]
-        
+
         # Simple key-value patterns for dictionary redaction
         self.secret_keys = [
             'api_key', 'api-key', 'API_KEY', 'API-KEY',
@@ -53,7 +52,7 @@ class FMFLogger:
             'bedrock_api_key', 'BEDROCK_API_KEY',
             'azure_api_key', 'AZURE_API_KEY',
         ]
-    
+
     def _redact_secrets(self, message: str) -> str:
         """Redact secrets from log messages."""
         # Check if message contains any secrets - if so, don't log it
@@ -61,19 +60,19 @@ class FMFLogger:
             if re.search(pattern, message, flags=re.IGNORECASE):
                 return "[REDACTED: Contains secrets]"
         return message
-    
+
     def _log_structured(self, level: int, message: str, **kwargs: Any) -> None:
         """Log a structured message with optional context."""
         # Redact secrets from the message
         safe_message = self._redact_secrets(message)
-        
+
         # Create structured log entry
         log_entry = {
             "message": safe_message,
             "timestamp": time.time(),
             "level": logging.getLevelName(level),
         }
-        
+
         # Add context if provided
         if kwargs:
             # Redact secrets from context
@@ -86,10 +85,10 @@ class FMFLogger:
                 else:
                     safe_kwargs[key] = value
             log_entry["context"] = safe_kwargs
-        
+
         # Log as JSON for structured logging
         self.logger.log(level, json.dumps(log_entry, default=str))
-    
+
     def _redact_dict(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Recursively redact secrets from a dictionary."""
         redacted = {}
@@ -114,33 +113,33 @@ class FMFLogger:
             else:
                 redacted[key] = value
         return redacted
-    
+
     def debug(self, message: str, **kwargs: Any) -> None:
         """Log a debug message."""
         self._log_structured(logging.DEBUG, message, **kwargs)
-    
+
     def info(self, message: str, **kwargs: Any) -> None:
         """Log an info message."""
         self._log_structured(logging.INFO, message, **kwargs)
-    
+
     def warning(self, message: str, **kwargs: Any) -> None:
         """Log a warning message."""
         self._log_structured(logging.WARNING, message, **kwargs)
-    
+
     def error(self, message: str, **kwargs: Any) -> None:
         """Log an error message."""
         self._log_structured(logging.ERROR, message, **kwargs)
-    
+
     def critical(self, message: str, **kwargs: Any) -> None:
         """Log a critical message."""
         self._log_structured(logging.CRITICAL, message, **kwargs)
-    
+
     @contextmanager
     def operation(self, operation_name: str, **context: Any):
         """Context manager for logging operation start/stop."""
         start_time = time.time()
         self.info(f"Starting {operation_name}", operation=operation_name, **context)
-        
+
         try:
             yield self
         except Exception as e:
@@ -161,12 +160,12 @@ class FMFLogger:
                 duration_ms=duration * 1000,
                 **context
             )
-    
+
     def config_fingerprint(self, config: Dict[str, Any]) -> None:
         """Log configuration fingerprint with secrets redacted."""
         safe_config = self._redact_dict(config)
         self.info("Configuration loaded", config_fingerprint=safe_config)
-    
+
     def connector_summary(self, connector_name: str, connector_type: str, **details: Any) -> None:
         """Log connector summary information."""
         self.info(
@@ -175,7 +174,7 @@ class FMFLogger:
             connector_type=connector_type,
             **details
         )
-    
+
     def processing_stats(self, records_processed: int, records_returned: int, **stats: Any) -> None:
         """Log processing statistics."""
         self.info(
@@ -184,7 +183,7 @@ class FMFLogger:
             records_returned=records_returned,
             **stats
         )
-    
+
     def timing(self, operation: str, duration_ms: float, **context: Any) -> None:
         """Log timing information."""
         self.info(

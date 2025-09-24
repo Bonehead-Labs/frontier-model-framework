@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable, Iterable, Optional
 
-from .base_client import Completion, InferenceError, LLMClient, Message, RateLimiter, with_retries
+from .base_client import Completion, InferenceError, Message, RateLimiter, with_retries
 from ..core.interfaces.providers_base import TokenChunk
 from .registry import register_provider
 from ..processing.chunking import estimate_tokens

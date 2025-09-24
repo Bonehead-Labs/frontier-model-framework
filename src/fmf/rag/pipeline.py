@@ -6,7 +6,7 @@ import re
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Tuple
 
 from ..connectors import build_connector
 from ..processing.chunking import chunk_text

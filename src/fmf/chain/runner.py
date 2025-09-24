@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import hashlib
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -23,7 +22,7 @@ from ..observability.tracing import get_tracer
 from ..prompts.registry import build_prompt_registry
 from ..rag import build_rag_pipelines
 from ..core.ids import chunk_id as compute_chunk_id
-from ..core.errors import ConfigError, ProviderError
+from ..core.errors import ConfigError
 from ..inference.runtime import (
     DEFAULT_MODE,
     InferenceMode,
@@ -31,7 +30,7 @@ from ..inference.runtime import (
     invoke_with_mode,
     normalize_mode,
 )
-from .loader import ChainConfig, ChainStep, load_chain
+from .loader import ChainConfig, load_chain
 
 
 def _limit_joined(text: str) -> str:
@@ -1190,7 +1189,7 @@ def run_chain_config(
         fmf_config_path: Path to FMF config file (legacy)
         fmf_config: FMF config object (preferred)
         set_overrides: Environment variable overrides
-        
+
     Returns:
         Execution results
     """
@@ -1231,7 +1230,7 @@ def run_chain_config(
         path = os.path.join(tdir, "chain.yaml")
         with open(path, "w", encoding="utf-8") as f:
             _yaml.safe_dump(data, f, sort_keys=False)
-        
+
         # Use config object if provided, otherwise fall back to file path
         if fmf_config is not None:
             return run_chain(path, fmf_config=fmf_config, set_overrides=set_overrides)

@@ -6,8 +6,7 @@ from typing import Any, Dict, List, Optional, Literal
 
 from ..chain.runner import run_chain_config
 from ..config.loader import load_config
-from ..observability.logging import get_logger, log_config_fingerprint, log_processing_stats
-from ..observability.tracing import get_tracer, trace_operation
+from ..observability.logging import get_logger, log_config_fingerprint
 from .types import RunResult
 import yaml as _yaml
 
@@ -26,7 +25,7 @@ def _build_run_result(
     """Build a RunResult object from chain execution results."""
     run_id = chain_result.get("run_id", "unknown")
     run_dir = chain_result.get("run_dir")
-    
+
     # Count records processed
     records_processed = 0
     if run_dir and os.path.exists(run_dir):
@@ -37,13 +36,13 @@ def _build_run_result(
                     records_processed = sum(1 for _ in f)
             except Exception:
                 pass
-    
+
     # Build output paths
     output_paths = []
     csv_path = None
     jsonl_path = None
     json_path = None
-    
+
     if run_dir and os.path.exists(run_dir):
         # Check for actual output files
         for filename in os.listdir(run_dir):
@@ -56,7 +55,7 @@ def _build_run_result(
             elif filename.endswith('.json'):
                 json_path = os.path.join(run_dir, filename)
                 output_paths.append(json_path)
-    
+
     # Get configuration info
     effective_config = fmf_instance._get_effective_config()
     service_used = effective_config.get_inference_provider()
@@ -64,9 +63,9 @@ def _build_run_result(
     rag_pipeline = None
     if rag_enabled and fmf_instance._rag_override:
         rag_pipeline = fmf_instance._rag_override.get("pipeline")
-    
+
     source_connector = fmf_instance._source_connector
-    
+
     # Load data if requested
     data = None
     if return_records and jsonl_path and os.path.exists(jsonl_path):
@@ -74,7 +73,7 @@ def _build_run_result(
             data = list(_read_jsonl(jsonl_path))
         except Exception:
             pass
-    
+
     return RunResult(
         success=True,  # If we got here, execution succeeded
         run_id=run_id,
@@ -103,7 +102,7 @@ class FMF:
         self._config_path = config_path or "fmf.yaml"
         self._cfg = None
         self._logger = get_logger("fmf.client")
-        
+
         try:
             self._cfg = load_config(self._config_path)
             if self._cfg:
@@ -113,7 +112,7 @@ class FMF:
         except Exception as e:
             self._logger.warning(f"Failed to load config from {self._config_path}: {e}")
             self._cfg = None
-        
+
         # Fluent API state - these override config values
         self._fluent_overrides: Dict[str, Any] = {}
         self._service_override: Optional[str] = None
@@ -146,20 +145,20 @@ class FMF:
         rag_options: Dict[str, Any] | None = None,
         mode: str | None = None,
     ) -> RunResult:
-        self._logger.info("Starting CSV analysis", 
-                         input_file=input, 
-                         text_col=text_col, 
+        self._logger.info("Starting CSV analysis",
+                         input_file=input,
+                         text_col=text_col,
                          id_col=id_col,
                          prompt_length=len(prompt))
-        
+
         filename = os.path.basename(input)
         c = connector or self._auto_connector_name()
         save_csv = save_csv or "artefacts/${run_id}/analysis.csv"
         save_jsonl = save_jsonl or "artefacts/${run_id}/analysis.jsonl"
-        
-        self._logger.debug("CSV analysis configuration", 
-                          connector=c, 
-                          save_csv=save_csv, 
+
+        self._logger.debug("CSV analysis configuration",
+                          connector=c,
+                          save_csv=save_csv,
                           save_jsonl=save_jsonl,
                           expects_json=expects_json)
 
@@ -211,12 +210,12 @@ class FMF:
             self._logger.debug("Executing CSV analysis chain")
             res = self._run_chain_with_effective_config(chain)
             end_time = time.time()
-            
+
             duration_ms = (end_time - start_time) * 1000
-            self._logger.info("CSV analysis completed successfully", 
+            self._logger.info("CSV analysis completed successfully",
                              duration_ms=duration_ms,
                              run_id=res.get("run_id", "unknown"))
-            
+
             return _build_run_result(
                 chain_result=res,
                 start_time=start_time,
@@ -230,8 +229,8 @@ class FMF:
         except Exception as e:
             end_time = time.time()
             duration_ms = (end_time - start_time) * 1000
-            self._logger.error("CSV analysis failed", 
-                              error=str(e), 
+            self._logger.error("CSV analysis failed",
+                              error=str(e),
                               duration_ms=duration_ms)
             return RunResult(
                 success=False,
@@ -270,7 +269,7 @@ class FMF:
         try:
             res = self._run_chain_with_effective_config(chain)
             end_time = time.time()
-            
+
             return _build_run_result(
                 chain_result=res,
                 start_time=start_time,
@@ -332,7 +331,7 @@ class FMF:
         try:
             res = self._run_chain_with_effective_config(chain)
             end_time = time.time()
-            
+
             return _build_run_result(
                 chain_result=res,
                 start_time=start_time,
@@ -370,7 +369,7 @@ class FMF:
         mode: str | None = None,
     ) -> RunResult:
         """Analyze a pandas DataFrame using FMF inference.
-        
+
         Args:
             df: pandas DataFrame to analyze
             text_col: Column name containing text to analyze
@@ -383,7 +382,7 @@ class FMF:
             save_jsonl: Path to save JSONL output (optional)
             rag_options: RAG configuration options
             mode: Inference mode (auto, regular, stream)
-            
+
         Returns:
             RunResult with analysis results and metadata
         """
@@ -391,13 +390,13 @@ class FMF:
             import pandas as pd
         except ImportError:
             raise ImportError("pandas is required for DataFrame analysis. Install with: pip install pandas")
-        
+
         if not isinstance(df, pd.DataFrame):
             raise ValueError("df must be a pandas DataFrame")
-        
+
         if text_col not in df.columns:
             raise ValueError(f"Text column '{text_col}' not found in DataFrame. Available columns: {list(df.columns)}")
-        
+
         # Use index as ID if no ID column specified
         if id_col is None:
             id_col = "index"
@@ -405,13 +404,13 @@ class FMF:
             df[id_col] = df.index.astype(str)
         elif id_col not in df.columns:
             raise ValueError(f"ID column '{id_col}' not found in DataFrame. Available columns: {list(df.columns)}")
-        
-        self._logger.info("Starting DataFrame analysis", 
-                         rows=len(df), 
-                         text_col=text_col, 
+
+        self._logger.info("Starting DataFrame analysis",
+                         rows=len(df),
+                         text_col=text_col,
                          id_col=id_col,
                          prompt_length=len(prompt))
-        
+
         # Convert DataFrame to rows format expected by chain runner
         rows = []
         for idx, row in df.iterrows():
@@ -424,11 +423,11 @@ class FMF:
                 if col not in [text_col, id_col]:
                     row_data[col] = row[col]
             rows.append(row_data)
-        
+
         # Build chain configuration for DataFrame processing
         save_csv = save_csv or "artefacts/${run_id}/dataframe_analysis.csv"
         save_jsonl = save_jsonl or "artefacts/${run_id}/dataframe_analysis.jsonl"
-        
+
         output_block: Any = "analysed"
         if expects_json:
             output_block = {
@@ -476,12 +475,12 @@ class FMF:
             self._logger.debug("Executing DataFrame analysis chain")
             res = self._run_chain_with_effective_config(chain)
             end_time = time.time()
-            
+
             duration_ms = (end_time - start_time) * 1000
-            self._logger.info("DataFrame analysis completed successfully", 
+            self._logger.info("DataFrame analysis completed successfully",
                              duration_ms=duration_ms,
                              run_id=res.get("run_id", "unknown"))
-            
+
             return _build_run_result(
                 chain_result=res,
                 start_time=start_time,
@@ -495,8 +494,8 @@ class FMF:
         except Exception as e:
             end_time = time.time()
             duration_ms = (end_time - start_time) * 1000
-            self._logger.error("DataFrame analysis failed", 
-                              error=str(e), 
+            self._logger.error("DataFrame analysis failed",
+                              error=str(e),
                               duration_ms=duration_ms)
             return RunResult(
                 success=False,
@@ -599,10 +598,10 @@ class FMF:
     # --- Fluent Builder API ---
     def with_service(self, name: str) -> "FMF":
         """Configure the inference service provider.
-        
+
         Args:
             name: Service name (e.g., "azure_openai", "aws_bedrock")
-            
+
         Returns:
             Self for method chaining
         """
@@ -611,11 +610,11 @@ class FMF:
 
     def with_rag(self, enabled: bool, pipeline: str | None = None) -> "FMF":
         """Configure RAG (Retrieval-Augmented Generation) settings.
-        
+
         Args:
             enabled: Whether to enable RAG
             pipeline: Optional pipeline name for RAG retrieval
-            
+
         Returns:
             Self for method chaining
         """
@@ -651,10 +650,10 @@ class FMF:
 
     def with_response(self, kind: Literal["csv", "json", "text", "jsonl"]) -> "FMF":
         """Configure the response format.
-        
+
         Args:
             kind: Response format type
-            
+
         Returns:
             Self for method chaining
         """
@@ -663,17 +662,17 @@ class FMF:
 
     def with_source(self, connector: Literal["sharepoint", "s3", "local", "azure_blob"], **kwargs) -> "FMF":
         """Configure the data source connector.
-        
+
         Args:
             connector: Connector type
             **kwargs: Connector-specific configuration
-            
+
         Returns:
             Self for method chaining
         """
         # Generate a connector name if not provided
         connector_name = kwargs.pop('name', f"{connector}_docs")
-        
+
         # Set default configurations based on connector type
         if connector == "local":
             default_config = {
@@ -707,35 +706,35 @@ class FMF:
             }
         else:
             default_config = {"type": connector}
-        
+
         # Merge with provided kwargs
         default_config.update(kwargs)
-        
+
         self._source_connector = connector_name
         self._source_kwargs = default_config
         return self
 
     def run_inference(self, kind: Literal["csv", "text", "images"], method: str, **kwargs) -> Any:
         """Run inference using the configured settings.
-        
+
         Args:
             kind: Type of inference to run
             method: Specific method to use
             **kwargs: Method-specific parameters
-            
+
         Returns:
             Inference results
         """
         # Apply fluent configuration to kwargs
         if self._source_connector and 'connector' not in kwargs:
             kwargs['connector'] = self._source_connector
-        
+
         if self._response_format:
             if self._response_format == "csv" and 'save_csv' not in kwargs:
-                kwargs['save_csv'] = f"artefacts/${{run_id}}/analysis.csv"
+                kwargs['save_csv'] = "artefacts/${run_id}/analysis.csv"
             elif self._response_format == "jsonl" and 'save_jsonl' not in kwargs:
-                kwargs['save_jsonl'] = f"artefacts/${{run_id}}/analysis.jsonl"
-        
+                kwargs['save_jsonl'] = "artefacts/${run_id}/analysis.jsonl"
+
         # Apply RAG configuration if enabled
         if self._rag_override and 'rag_options' not in kwargs:
             # Extract RAG options from fluent configuration
@@ -745,7 +744,7 @@ class FMF:
                 "top_k_images": 2
             }
             kwargs['rag_options'] = rag_options
-        
+
         # Delegate to appropriate method based on kind
         if kind == "csv":
             if method == "analyse":
@@ -786,19 +785,19 @@ class FMF:
     def _get_effective_config(self) -> "EffectiveConfig":
         """Get the effective configuration merging fluent overrides with base config."""
         from ..config.effective import EffectiveConfig
-        
+
         # Build fluent overrides dict
         fluent_overrides = dict(self._fluent_overrides)
-        
+
         # Apply specific fluent overrides
         if self._service_override:
             if 'inference' not in fluent_overrides:
                 fluent_overrides['inference'] = {}
             fluent_overrides['inference']['provider'] = self._service_override
-        
+
         if self._rag_override:
             fluent_overrides['rag'] = self._rag_override
-        
+
         if self._response_format:
             if 'export' not in fluent_overrides:
                 fluent_overrides['export'] = {}
@@ -810,12 +809,12 @@ class FMF:
                 'type': 's3',  # Default type
                 'format': self._response_format
             })
-        
+
         if self._source_connector:
             # Add or update connector configuration
             if 'connectors' not in fluent_overrides:
                 fluent_overrides['connectors'] = []
-            
+
             # Create connector config
             new_connector = {
                 'name': self._source_connector,
@@ -823,7 +822,7 @@ class FMF:
                 **self._source_kwargs
             }
             fluent_overrides['connectors'].append(new_connector)
-        
+
         # Create effective config
         return EffectiveConfig.from_base_and_overrides(
             base_config=self._cfg,
@@ -833,7 +832,7 @@ class FMF:
     def _run_chain_with_effective_config(self, chain: Dict[str, Any]) -> Dict[str, Any]:
         """Run chain config with effective configuration that includes fluent overrides."""
         effective_config = self._get_effective_config()
-        
+
         # Use the config object directly instead of temporary file
         return run_chain_config(chain, fmf_config=effective_config)
 
@@ -851,7 +850,7 @@ class FMF:
         mode: str | None = None,
     ) -> RunResult:
         """Convert text files to JSON using fluent API pattern.
-        
+
         This is a convenience wrapper around text_files() that follows the fluent API naming.
         """
         return self.text_files(
@@ -1026,11 +1025,11 @@ def _build_rag_block(
 # Add ergonomics methods to FMF class
 def _add_ergonomics_methods():
     """Add ergonomics methods to the FMF class."""
-    
+
     def defaults(self, **kwargs) -> "FMF":
         """
         Set common default options in one call.
-        
+
         Args:
             **kwargs: Common options including:
                 - service: Service provider name
@@ -1038,10 +1037,10 @@ def _add_ergonomics_methods():
                 - response: Response format (csv, json, jsonl, text)
                 - source: Source connector name or config
                 - connector: Alias for source
-                
+
         Returns:
             Self for method chaining
-            
+
         Example:
             fmf = FMF.from_env("fmf.yaml").defaults(
                 service="azure_openai",
@@ -1052,7 +1051,7 @@ def _add_ergonomics_methods():
         # Apply service if provided
         if "service" in kwargs:
             self = self.with_service(kwargs["service"])
-        
+
         # Apply RAG if provided
         if "rag" in kwargs:
             rag_config = kwargs["rag"]
@@ -1062,11 +1061,11 @@ def _add_ergonomics_methods():
             elif isinstance(rag_config, dict):
                 pipeline = rag_config.get("pipeline", "default_rag")
                 self = self.with_rag(enabled=True, pipeline=pipeline)
-        
+
         # Apply response format if provided
         if "response" in kwargs:
             self = self.with_response(kwargs["response"])
-        
+
         # Apply source if provided
         if "source" in kwargs:
             source = kwargs["source"]
@@ -1077,28 +1076,28 @@ def _add_ergonomics_methods():
                 self = self.with_source(connector_type, **source)
         elif "connector" in kwargs:
             self = self.with_source(kwargs["connector"])
-        
+
         return self
-    
+
     def __enter__(self) -> "FMF":
         """
         Context manager entry.
-        
+
         Returns:
             Self for use in 'with' statements
         """
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """
         Context manager exit.
-        
+
         Performs cleanup of resources and connectors.
         """
         # Clean up any resources that need explicit cleanup
         # For now, this is a placeholder for future resource management
         pass
-    
+
     def from_sharepoint(
         self,
         site_url: str,
@@ -1110,7 +1109,7 @@ def _add_ergonomics_methods():
     ) -> "FMF":
         """
         Configure SharePoint as the data source.
-        
+
         Args:
             site_url: SharePoint site URL
             list_name: List or library name
@@ -1118,12 +1117,12 @@ def _add_ergonomics_methods():
             root_path: Root path within the drive
             auth_profile: Authentication profile name
             **kwargs: Additional SharePoint configuration
-            
+
         Returns:
             Self for method chaining
         """
         from .types import SourceConfig
-        
+
         source_config = SourceConfig.for_sharepoint(
             site_url=site_url,
             list_name=list_name,
@@ -1132,9 +1131,9 @@ def _add_ergonomics_methods():
             auth_profile=auth_profile,
             **kwargs
         )
-        
+
         return self.with_source("sharepoint", **source_config.config)
-    
+
     def from_s3(
         self,
         bucket: str,
@@ -1145,19 +1144,19 @@ def _add_ergonomics_methods():
     ) -> "FMF":
         """
         Configure S3 as the data source.
-        
+
         Args:
             bucket: S3 bucket name
             prefix: Key prefix for filtering objects
             region: AWS region
             kms_required: Whether KMS encryption is required
             **kwargs: Additional S3 configuration
-            
+
         Returns:
             Self for method chaining
         """
         from .types import SourceConfig
-        
+
         source_config = SourceConfig.for_s3(
             bucket=bucket,
             prefix=prefix,
@@ -1165,9 +1164,9 @@ def _add_ergonomics_methods():
             kms_required=kms_required,
             **kwargs
         )
-        
+
         return self.with_source("s3", **source_config.config)
-    
+
     def from_local(
         self,
         root_path: str,
@@ -1177,27 +1176,27 @@ def _add_ergonomics_methods():
     ) -> "FMF":
         """
         Configure local filesystem as the data source.
-        
+
         Args:
             root_path: Root directory path
             include_patterns: File patterns to include (e.g., ["**/*.md", "**/*.txt"])
             exclude_patterns: File patterns to exclude (e.g., ["**/.git/**"])
             **kwargs: Additional local filesystem configuration
-            
+
         Returns:
             Self for method chaining
         """
         from .types import SourceConfig
-        
+
         source_config = SourceConfig.for_local(
             root_path=root_path,
             include_patterns=include_patterns,
             exclude_patterns=exclude_patterns,
             **kwargs
         )
-        
+
         return self.with_source("local", **source_config.config)
-    
+
     # Add methods to FMF class
     FMF.defaults = defaults
     FMF.__enter__ = __enter__

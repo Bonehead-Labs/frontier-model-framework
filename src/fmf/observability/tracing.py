@@ -1,9 +1,7 @@
 """OpenTelemetry tracing support for FMF operations."""
 
-import os
-import time
 from contextlib import contextmanager
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 from functools import wraps
 
 # Optional OpenTelemetry imports
@@ -30,49 +28,49 @@ except ImportError:
 
 class FMFTracer:
     """OpenTelemetry tracer for FMF operations."""
-    
+
     def __init__(self, enabled: bool = False, service_name: str = "fmf"):
         self.enabled = enabled and OPENTELEMETRY_AVAILABLE
         self.service_name = service_name
         self.tracer = None
-        
+
         if self.enabled:
             self._setup_tracer()
-    
+
     def _setup_tracer(self) -> None:
         """Set up OpenTelemetry tracer."""
         if not OPENTELEMETRY_AVAILABLE:
             return
-        
+
         # Create resource
         resource = Resource.create({
             "service.name": self.service_name,
             "service.version": "1.0.0",
         })
-        
+
         # Create tracer provider
         provider = TracerProvider(resource=resource)
         trace.set_tracer_provider(provider)
-        
+
         # Add span processor
         processor = BatchSpanProcessor(ConsoleSpanExporter())
         provider.add_span_processor(processor)
-        
+
         # Get tracer
         self.tracer = trace.get_tracer(self.service_name)
-    
+
     @contextmanager
     def span(self, name: str, attributes: Optional[Dict[str, Any]] = None):
         """Create a span for an operation."""
         if not self.enabled or not self.tracer:
             yield
             return
-        
+
         with self.tracer.start_as_current_span(name) as span:
             if attributes:
                 for key, value in attributes.items():
                     span.set_attribute(key, str(value))
-            
+
             try:
                 yield span
             except Exception as e:
@@ -81,21 +79,21 @@ class FMFTracer:
                 raise
             else:
                 span.set_status(Status(StatusCode.OK))
-    
+
     def add_event(self, name: str, attributes: Optional[Dict[str, Any]] = None) -> None:
         """Add an event to the current span."""
         if not self.enabled or not self.tracer:
             return
-        
+
         current_span = trace.get_current_span()
         if current_span.is_recording():
             current_span.add_event(name, attributes or {})
-    
+
     def set_attribute(self, key: str, value: Any) -> None:
         """Set an attribute on the current span."""
         if not self.enabled or not self.tracer:
             return
-        
+
         current_span = trace.get_current_span()
         if current_span.is_recording():
             current_span.set_attribute(key, str(value))

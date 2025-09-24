@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import os
-from typing import Any, Iterable, List, Optional, Tuple
+from typing import Any, List, Optional
 
 from ..core.ids import (
     blob_id as compute_blob_id,

@@ -6,7 +6,6 @@ import gzip
 import hashlib
 import io
 import json
-import os
 import uuid
 from typing import Any, Iterable, List, Dict
 
@@ -145,8 +144,8 @@ class S3Exporter:
                         seen.add(k)
                         headers.append(k)
             buf = io.StringIO()
-            w = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")  # not used directly, keep to illustrate approach
-            csvw = io.StringIO()
+            io.TextIOWrapper(io.BytesIO(), encoding="utf-8")  # not used directly, keep to illustrate approach
+            io.StringIO()
             import csv as _csv
 
             wtr = _csv.writer(buf)
@@ -235,7 +234,7 @@ class S3Exporter:
                 meta = head.get("Metadata", {}) or {}
                 if meta.get("fmf-sha256") not in {sha256_hex, sha256_hex.lower()}:
                     raise ExportError("S3 overwrite verification failed: checksum mismatch")
-            except Exception as exc:  # pragma: no cover - best effort fallback
+            except Exception:  # pragma: no cover - best effort fallback
                 raise
             client.delete_object(Bucket=self.bucket, Key=temp_key)
             return ExportResult(count=-1, paths=[f"s3://{self.bucket}/{final_key}"])

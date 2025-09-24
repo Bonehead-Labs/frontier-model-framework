@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 import yaml
 
@@ -144,11 +144,10 @@ def _render_simple(template: str, inputs: Dict[str, Any]) -> str:
 
 def build_prompt_registry(cfg: Any | None):
     # Supports only local_yaml/git_yaml paths for now (both on disk)
-    backend = None
     root = os.getcwd()
     index_file = "prompts/index.yaml"
     if cfg is not None:
-        backend = getattr(cfg, "backend", None) if not isinstance(cfg, dict) else cfg.get("backend")
+        getattr(cfg, "backend", None) if not isinstance(cfg, dict) else cfg.get("backend")
         root = getattr(cfg, "path", root) if not isinstance(cfg, dict) else cfg.get("path", root)
         index_file = getattr(cfg, "index_file", index_file) if not isinstance(cfg, dict) else cfg.get("index_file", index_file)
     return LocalYamlRegistry(root=root, index_file=index_file)

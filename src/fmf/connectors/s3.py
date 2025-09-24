@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import IO, Iterable, List, Optional
+from typing import IO, Iterable, Optional
 
 from ..core.interfaces import ConnectorSpec, ConnectorSelectors, RunContext
 from ..core.interfaces.connectors_base import BaseConnector

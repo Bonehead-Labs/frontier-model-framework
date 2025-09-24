@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Literal, Optional, Protocol
+from typing import Any, Callable, Literal, Optional, Protocol
 
 from ..core.errors import InferenceError
 
