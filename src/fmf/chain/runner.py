@@ -280,10 +280,15 @@ class ExecutionResult:
 def _prepare_environment(
     chain: ChainConfig,
     *,
-    fmf_config_path: str,
-    set_overrides: list[str] | None,
+    fmf_config_path: str | None = None,
+    fmf_config: Any | None = None,
+    set_overrides: list[str] | None = None,
 ) -> RuntimeContext:
-    cfg = load_config(fmf_config_path, set_overrides=set_overrides)
+    # Use config object if provided, otherwise load from file
+    if fmf_config is not None:
+        cfg = fmf_config
+    else:
+        cfg = load_config(fmf_config_path or "fmf.yaml", set_overrides=set_overrides)
     try:
         _metrics.clear()
     except Exception:
@@ -1134,7 +1139,8 @@ def _finalize_run(
 def run_chain(
     chain_path: str,
     *,
-    fmf_config_path: str = "fmf.yaml",
+    fmf_config_path: str | None = None,
+    fmf_config: Any | None = None,
     set_overrides: list[str] | None = None,
 ) -> Dict[str, Any]:
     chain = load_chain(chain_path)
@@ -1142,6 +1148,7 @@ def run_chain(
     return _run_chain_loaded(
         chain,
         fmf_config_path=fmf_config_path,
+        fmf_config=fmf_config,
         set_overrides=set_overrides,
     )
 
@@ -1149,13 +1156,20 @@ def run_chain(
 def run_chain_config(
     conf: ChainConfig | Dict[str, Any],
     *,
-    fmf_config_path: str = "fmf.yaml",
+    fmf_config_path: str | None = None,
+    fmf_config: Any | None = None,
     set_overrides: list[str] | None = None,
 ) -> Dict[str, Any]:
     """Programmatic runner that accepts a ChainConfig or a plain dict.
 
-    For compatibility and to avoid duplicating run logic, this function
-    serializes the chain to a temporary YAML file and reuses run_chain.
+    Args:
+        conf: Chain configuration (ChainConfig or dict)
+        fmf_config_path: Path to FMF config file (legacy)
+        fmf_config: FMF config object (preferred)
+        set_overrides: Environment variable overrides
+        
+    Returns:
+        Execution results
     """
     import tempfile as _tmp
     import yaml as _yaml
@@ -1194,16 +1208,23 @@ def run_chain_config(
         path = os.path.join(tdir, "chain.yaml")
         with open(path, "w", encoding="utf-8") as f:
             _yaml.safe_dump(data, f, sort_keys=False)
-        return run_chain(path, fmf_config_path=fmf_config_path, set_overrides=set_overrides)
+        
+        # Use config object if provided, otherwise fall back to file path
+        if fmf_config is not None:
+            return run_chain(path, fmf_config=fmf_config, set_overrides=set_overrides)
+        else:
+            return run_chain(path, fmf_config_path=fmf_config_path or "fmf.yaml", set_overrides=set_overrides)
 def _run_chain_loaded(
     chain: ChainConfig,
     *,
-    fmf_config_path: str,
+    fmf_config_path: str | None = None,
+    fmf_config: Any | None = None,
     set_overrides: list[str] | None = None,
 ) -> Dict[str, Any]:
     ctx = _prepare_environment(
         chain,
         fmf_config_path=fmf_config_path,
+        fmf_config=fmf_config,
         set_overrides=set_overrides,
     )
     inputs = _collect_inputs(ctx)

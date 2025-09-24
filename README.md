@@ -54,22 +54,38 @@ cp examples/fmf.example.yaml fmf.yaml
 ```python
 from fmf.sdk import FMF
 
-# Simple analysis
+# Simple analysis with rich results
 fmf = FMF.from_env("fmf.yaml")
-records = fmf.csv_analyse(
+result = fmf.csv_analyse(
     input="./data/comments.csv", 
     text_col="Comment", 
     id_col="ID", 
     prompt="Summarise this comment"
 )
 
-# Fluent API for advanced configuration
-fmf = (FMF.from_env("fmf.yaml")
-       .with_service("azure_openai")
-       .with_rag(enabled=True, pipeline="documents")
-       .with_response("csv"))
+print(f"Processed {result.records_processed} records in {result.duration_ms:.1f}ms")
+print(f"Output saved to: {result.primary_output_path}")
 
-records = fmf.csv_analyse(input="./data/comments.csv", text_col="Comment", id_col="ID", prompt="Analyze sentiment")
+# Fluent API with ergonomics
+fmf = (FMF.from_env("fmf.yaml")
+       .defaults(service="azure_openai", rag=True, response="csv")
+       .from_s3("my-bucket", "data/"))
+
+# Context manager for resource cleanup
+with fmf as f:
+    result = f.csv_analyse(
+        input="./data/comments.csv", 
+        text_col="Comment", 
+        id_col="ID", 
+        prompt="Analyze sentiment"
+    )
+    print(f"Success: {result.success}, Records: {result.records_processed}")
+
+# Source helpers for common patterns
+fmf = (FMF.from_env("fmf.yaml")
+       .from_sharepoint("https://contoso.sharepoint.com/sites/docs", "Documents")
+       .from_local("./data", include_patterns=["**/*.md", "**/*.txt"])
+       .defaults(service="azure_openai", rag={"pipeline": "documents"}))
 ```
 
 ### Fluent API vs CLI/Recipes Mapping
@@ -84,6 +100,78 @@ records = fmf.csv_analyse(input="./data/comments.csv", text_col="Comment", id_co
 | `csv_analyse(...)` | `fmf csv analyse` | `recipe: csv_analyse` | CSV analysis shortcut |
 | `text_to_json(...)` | `fmf text infer` | `recipe: text_files` | Text processing shortcut |
 | `images_analyse(...)` | `fmf images analyse` | `recipe: images_analyse` | Image analysis shortcut |
+
+### Configuration Precedence & In-Memory Merge
+
+FMF uses a sophisticated configuration system that merges multiple sources with clear precedence:
+
+**Precedence Order (highest to lowest):**
+1. **Fluent API overrides** - Programmatic configuration via `.with_service()`, `.with_rag()`, etc.
+2. **Recipe YAML** - Recipe-specific configuration (optional)
+3. **Base YAML config** - Default configuration from `fmf.yaml`
+
+**In-Memory Processing:**
+- Configurations are merged in-memory using Pydantic models for type safety and validation
+- No temporary files are created during execution
+- All type coercion and validation happens at merge time
+- Effective configuration is computed once and reused throughout execution
+
+**Example:**
+```python
+# Base config: inference.provider = "azure_openai", temperature = 0.1
+# Recipe config: temperature = 0.5
+# Fluent override: provider = "aws_bedrock"
+
+# Result: provider = "aws_bedrock" (fluent wins), temperature = 0.5 (recipe wins)
+fmf = (FMF.from_env("fmf.yaml")
+       .with_service("aws_bedrock"))  # Fluent override
+```
+
+### SDK Ergonomics & Rich Results
+
+FMF provides enhanced ergonomics for better developer experience:
+
+**Rich Return Types:**
+```python
+result = fmf.csv_analyse(input="data.csv", text_col="Comment", id_col="ID", prompt="Analyze")
+
+# Rich metadata and results
+print(f"Success: {result.success}")
+print(f"Records processed: {result.records_processed}")
+print(f"Duration: {result.duration_ms:.1f}ms")
+print(f"Output files: {result.output_paths}")
+print(f"Service used: {result.service_used}")
+print(f"RAG enabled: {result.rag_enabled}")
+
+# Access raw data if needed
+if result.data:
+    for record in result.data:
+        print(f"ID: {record['id']}, Analysis: {record['analysed']}")
+```
+
+**Convenience Methods:**
+```python
+# Set common defaults in one call
+fmf = FMF.from_env("fmf.yaml").defaults(
+    service="azure_openai",
+    rag=True,
+    response="csv"
+)
+
+# Source helpers for common patterns
+fmf = (FMF.from_env("fmf.yaml")
+       .from_sharepoint("https://contoso.sharepoint.com/sites/docs", "Documents")
+       .from_s3("my-bucket", "data/", region="us-east-1")
+       .from_local("./data", include_patterns=["**/*.md", "**/*.txt"]))
+```
+
+**Context Manager for Resource Cleanup:**
+```python
+# Automatic resource cleanup
+with FMF.from_env("fmf.yaml").defaults(service="azure_openai") as fmf:
+    result = fmf.csv_analyse(input="data.csv", text_col="Comment", id_col="ID", prompt="Analyze")
+    # Resources are automatically cleaned up when exiting the context
+```
 
 **Scripts & CLI**
 

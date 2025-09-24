@@ -1,11 +1,99 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Any, Dict, List, Optional, Literal
 
 from ..chain.runner import run_chain_config
 from ..config.loader import load_config
+from .types import RunResult
 import yaml as _yaml
+
+
+def _build_run_result(
+    chain_result: Dict[str, Any],
+    start_time: float,
+    end_time: float,
+    method_name: str,
+    fmf_instance: "FMF",
+    return_records: bool = False,
+    save_csv: str | None = None,
+    save_jsonl: str | None = None,
+    save_json: str | None = None,
+) -> RunResult:
+    """Build a RunResult object from chain execution results."""
+    run_id = chain_result.get("run_id", "unknown")
+    run_dir = chain_result.get("run_dir")
+    
+    # Count records processed
+    records_processed = 0
+    if run_dir and os.path.exists(run_dir):
+        outputs_path = os.path.join(run_dir, "outputs.jsonl")
+        if os.path.exists(outputs_path):
+            try:
+                with open(outputs_path, 'r', encoding='utf-8') as f:
+                    records_processed = sum(1 for _ in f)
+            except Exception:
+                pass
+    
+    # Build output paths
+    output_paths = []
+    csv_path = None
+    jsonl_path = None
+    json_path = None
+    
+    if run_dir and os.path.exists(run_dir):
+        # Check for actual output files
+        for filename in os.listdir(run_dir):
+            if filename.endswith('.csv'):
+                csv_path = os.path.join(run_dir, filename)
+                output_paths.append(csv_path)
+            elif filename.endswith('.jsonl'):
+                jsonl_path = os.path.join(run_dir, filename)
+                output_paths.append(jsonl_path)
+            elif filename.endswith('.json'):
+                json_path = os.path.join(run_dir, filename)
+                output_paths.append(json_path)
+    
+    # Get configuration info
+    effective_config = fmf_instance._get_effective_config()
+    service_used = effective_config.get_inference_provider()
+    rag_enabled = bool(fmf_instance._rag_override and fmf_instance._rag_override.get("enabled"))
+    rag_pipeline = None
+    if rag_enabled and fmf_instance._rag_override:
+        rag_pipeline = fmf_instance._rag_override.get("pipeline")
+    
+    source_connector = fmf_instance._source_connector
+    
+    # Load data if requested
+    data = None
+    if return_records and jsonl_path and os.path.exists(jsonl_path):
+        try:
+            data = list(_read_jsonl(jsonl_path))
+        except Exception:
+            pass
+    
+    return RunResult(
+        success=True,  # If we got here, execution succeeded
+        run_id=run_id,
+        records_processed=records_processed,
+        records_returned=len(data) if data else 0,
+        output_paths=output_paths,
+        csv_path=csv_path,
+        jsonl_path=jsonl_path,
+        json_path=json_path,
+        start_time=start_time,
+        end_time=end_time,
+        service_used=service_used,
+        rag_enabled=rag_enabled,
+        rag_pipeline=rag_pipeline,
+        source_connector=source_connector,
+        data=data,
+        metadata={
+            "method": method_name,
+            "chain_result": chain_result,
+        }
+    )
 
 
 class FMF:
@@ -48,7 +136,7 @@ class FMF:
         connector: str | None = None,
         rag_options: Dict[str, Any] | None = None,
         mode: str | None = None,
-    ) -> Optional[List[Dict[str, Any]]]:
+    ) -> RunResult:
         filename = os.path.basename(input)
         c = connector or self._auto_connector_name()
         save_csv = save_csv or "artefacts/${run_id}/analysis.csv"
@@ -97,19 +185,32 @@ class FMF:
             "continue_on_error": True,
         }
 
-        res = self._run_chain_with_effective_config(chain)
-        if not return_records:
-            return None
-        # Load records from saved analysis JSONL
-        out_path = save_jsonl.replace("${run_id}", res.get("run_id", ""))
+        start_time = time.time()
         try:
-            return list(_read_jsonl(out_path))
-        except Exception:
-            # Fallback to last outputs.jsonl if save path unknown
-            run_dir = res.get("run_dir")
-            if run_dir:
-                return list(_read_jsonl(os.path.join(run_dir, "outputs.jsonl")))
-            return None
+            res = self._run_chain_with_effective_config(chain)
+            end_time = time.time()
+            
+            return _build_run_result(
+                chain_result=res,
+                start_time=start_time,
+                end_time=end_time,
+                method_name="csv_analyse",
+                fmf_instance=self,
+                return_records=return_records,
+                save_csv=save_csv,
+                save_jsonl=save_jsonl,
+            )
+        except Exception as e:
+            end_time = time.time()
+            return RunResult(
+                success=False,
+                run_id="unknown",
+                start_time=start_time,
+                end_time=end_time,
+                error=str(e),
+                error_details={"exception_type": type(e).__name__},
+                metadata={"method": "csv_analyse"}
+            )
 
     def text_files(
         self,
@@ -122,7 +223,7 @@ class FMF:
         return_records: bool = False,
         rag_options: Dict[str, Any] | None = None,
         mode: str | None = None,
-    ) -> Optional[List[Dict[str, Any]]]:
+    ) -> RunResult:
         c = connector or self._auto_connector_name()
         save_jsonl = save_jsonl or "artefacts/${run_id}/text_outputs.jsonl"
         chain = _build_text_chain(
@@ -134,11 +235,31 @@ class FMF:
             rag_options=rag_options,
             mode=mode,
         )
-        res = self._run_chain_with_effective_config(chain)
-        if not return_records:
-            return None
-        out_path = save_jsonl.replace("${run_id}", res.get("run_id", ""))
-        return list(_read_jsonl(out_path))
+        start_time = time.time()
+        try:
+            res = self._run_chain_with_effective_config(chain)
+            end_time = time.time()
+            
+            return _build_run_result(
+                chain_result=res,
+                start_time=start_time,
+                end_time=end_time,
+                method_name="text_files",
+                fmf_instance=self,
+                return_records=return_records,
+                save_jsonl=save_jsonl,
+            )
+        except Exception as e:
+            end_time = time.time()
+            return RunResult(
+                success=False,
+                run_id="unknown",
+                start_time=start_time,
+                end_time=end_time,
+                error=str(e),
+                error_details={"exception_type": type(e).__name__},
+                metadata={"method": "text_files"}
+            )
 
     def images_analyse(
         self,
@@ -152,7 +273,7 @@ class FMF:
         return_records: bool = False,
         rag_options: Dict[str, Any] | None = None,
         mode: str | None = None,
-    ) -> Optional[List[Dict[str, Any]]]:
+    ) -> RunResult:
         c = connector or self._auto_connector_name()
         save_jsonl = save_jsonl or "artefacts/${run_id}/image_outputs.jsonl"
         if group_size and group_size > 1:
@@ -176,11 +297,31 @@ class FMF:
                 rag_options=rag_options,
                 mode=mode,
             )
-        res = self._run_chain_with_effective_config(chain)
-        if not return_records:
-            return None
-        out_path = save_jsonl.replace("${run_id}", res.get("run_id", ""))
-        return list(_read_jsonl(out_path))
+        start_time = time.time()
+        try:
+            res = self._run_chain_with_effective_config(chain)
+            end_time = time.time()
+            
+            return _build_run_result(
+                chain_result=res,
+                start_time=start_time,
+                end_time=end_time,
+                method_name="images_analyse",
+                fmf_instance=self,
+                return_records=return_records,
+                save_jsonl=save_jsonl,
+            )
+        except Exception as e:
+            end_time = time.time()
+            return RunResult(
+                success=False,
+                run_id="unknown",
+                start_time=start_time,
+                end_time=end_time,
+                error=str(e),
+                error_details={"exception_type": type(e).__name__},
+                metadata={"method": "images_analyse"}
+            )
 
     # --- Recipe runner ---
     def run_recipe(
@@ -457,72 +598,59 @@ class FMF:
         name = getattr(connectors[0], "name", None) if not isinstance(connectors[0], dict) else connectors[0].get("name")
         return name or "local_docs"
 
-    def _get_effective_config(self) -> Dict[str, Any]:
+    def _get_effective_config(self) -> "EffectiveConfig":
         """Get the effective configuration merging fluent overrides with base config."""
-        # Start with base config as dict
-        if isinstance(self._cfg, dict):
-            effective = dict(self._cfg)
-        else:
-            # Convert Pydantic model to dict
-            effective = self._cfg.model_dump() if hasattr(self._cfg, 'model_dump') else {}
+        from ..config.effective import EffectiveConfig
         
-        # Apply fluent overrides
-        effective.update(self._fluent_overrides)
+        # Build fluent overrides dict
+        fluent_overrides = dict(self._fluent_overrides)
         
         # Apply specific fluent overrides
         if self._service_override:
-            if 'inference' not in effective:
-                effective['inference'] = {}
-            effective['inference']['provider'] = self._service_override
+            if 'inference' not in fluent_overrides:
+                fluent_overrides['inference'] = {}
+            fluent_overrides['inference']['provider'] = self._service_override
         
         if self._rag_override:
-            effective['rag'] = self._rag_override
+            fluent_overrides['rag'] = self._rag_override
+        
+        if self._response_format:
+            if 'export' not in fluent_overrides:
+                fluent_overrides['export'] = {}
+            if 'sinks' not in fluent_overrides['export']:
+                fluent_overrides['export']['sinks'] = []
+            # Add response format to export sinks
+            fluent_overrides['export']['sinks'].append({
+                'name': 'fluent_response',
+                'type': 's3',  # Default type
+                'format': self._response_format
+            })
         
         if self._source_connector:
             # Add or update connector configuration
-            if 'connectors' not in effective:
-                effective['connectors'] = []
+            if 'connectors' not in fluent_overrides:
+                fluent_overrides['connectors'] = []
             
-            # Find existing connector or create new one
-            connector_found = False
-            for i, conn in enumerate(effective['connectors']):
-                if isinstance(conn, dict) and conn.get('name') == self._source_connector:
-                    # Update existing connector
-                    effective['connectors'][i].update(self._source_kwargs)
-                    connector_found = True
-                    break
-            
-            if not connector_found:
-                # Create new connector
-                new_connector = {
-                    'name': self._source_connector,
-                    'type': self._source_connector.split('_')[0],  # Extract type from name
-                    **self._source_kwargs
-                }
-                effective['connectors'].append(new_connector)
+            # Create connector config
+            new_connector = {
+                'name': self._source_connector,
+                'type': self._source_connector.split('_')[0],  # Extract type from name
+                **self._source_kwargs
+            }
+            fluent_overrides['connectors'].append(new_connector)
         
-        return effective
+        # Create effective config
+        return EffectiveConfig.from_base_and_overrides(
+            base_config=self._cfg,
+            fluent_overrides=fluent_overrides
+        )
 
     def _run_chain_with_effective_config(self, chain: Dict[str, Any]) -> Dict[str, Any]:
         """Run chain config with effective configuration that includes fluent overrides."""
         effective_config = self._get_effective_config()
         
-        # Create a temporary config file with effective configuration
-        import tempfile
-        import yaml as _yaml
-        
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-            _yaml.safe_dump(effective_config, f, sort_keys=False)
-            temp_config_path = f.name
-        
-        try:
-            return run_chain_config(chain, fmf_config_path=temp_config_path)
-        finally:
-            import os
-            try:
-                os.unlink(temp_config_path)
-            except:
-                pass
+        # Use the config object directly instead of temporary file
+        return run_chain_config(chain, fmf_config=effective_config)
 
     # --- Fluent API Convenience Methods ---
     def text_to_json(
@@ -536,7 +664,7 @@ class FMF:
         return_records: bool = False,
         rag_options: Dict[str, Any] | None = None,
         mode: str | None = None,
-    ) -> Optional[List[Dict[str, Any]]]:
+    ) -> RunResult:
         """Convert text files to JSON using fluent API pattern.
         
         This is a convenience wrapper around text_files() that follows the fluent API naming.
@@ -708,3 +836,191 @@ def _build_rag_block(
         cfg["inject_prompt"] = True
 
     return cfg
+
+
+# Add ergonomics methods to FMF class
+def _add_ergonomics_methods():
+    """Add ergonomics methods to the FMF class."""
+    
+    def defaults(self, **kwargs) -> "FMF":
+        """
+        Set common default options in one call.
+        
+        Args:
+            **kwargs: Common options including:
+                - service: Service provider name
+                - rag: Enable RAG (bool) or RAG config dict
+                - response: Response format (csv, json, jsonl, text)
+                - source: Source connector name or config
+                - connector: Alias for source
+                
+        Returns:
+            Self for method chaining
+            
+        Example:
+            fmf = FMF.from_env("fmf.yaml").defaults(
+                service="azure_openai",
+                rag=True,
+                response="csv"
+            )
+        """
+        # Apply service if provided
+        if "service" in kwargs:
+            self = self.with_service(kwargs["service"])
+        
+        # Apply RAG if provided
+        if "rag" in kwargs:
+            rag_config = kwargs["rag"]
+            if isinstance(rag_config, bool):
+                if rag_config:
+                    self = self.with_rag(enabled=True)
+            elif isinstance(rag_config, dict):
+                pipeline = rag_config.get("pipeline", "default_rag")
+                self = self.with_rag(enabled=True, pipeline=pipeline)
+        
+        # Apply response format if provided
+        if "response" in kwargs:
+            self = self.with_response(kwargs["response"])
+        
+        # Apply source if provided
+        if "source" in kwargs:
+            source = kwargs["source"]
+            if isinstance(source, str):
+                self = self.with_source(source)
+            elif isinstance(source, dict):
+                connector_type = source.get("type", "local")
+                self = self.with_source(connector_type, **source)
+        elif "connector" in kwargs:
+            self = self.with_source(kwargs["connector"])
+        
+        return self
+    
+    def __enter__(self) -> "FMF":
+        """
+        Context manager entry.
+        
+        Returns:
+            Self for use in 'with' statements
+        """
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """
+        Context manager exit.
+        
+        Performs cleanup of resources and connectors.
+        """
+        # Clean up any resources that need explicit cleanup
+        # For now, this is a placeholder for future resource management
+        pass
+    
+    def from_sharepoint(
+        self,
+        site_url: str,
+        list_name: str,
+        drive: str = "Documents",
+        root_path: str | None = None,
+        auth_profile: str | None = None,
+        **kwargs: Any
+    ) -> "FMF":
+        """
+        Configure SharePoint as the data source.
+        
+        Args:
+            site_url: SharePoint site URL
+            list_name: List or library name
+            drive: Drive name (default: "Documents")
+            root_path: Root path within the drive
+            auth_profile: Authentication profile name
+            **kwargs: Additional SharePoint configuration
+            
+        Returns:
+            Self for method chaining
+        """
+        from .types import SourceConfig
+        
+        source_config = SourceConfig.for_sharepoint(
+            site_url=site_url,
+            list_name=list_name,
+            drive=drive,
+            root_path=root_path,
+            auth_profile=auth_profile,
+            **kwargs
+        )
+        
+        return self.with_source("sharepoint", **source_config.config)
+    
+    def from_s3(
+        self,
+        bucket: str,
+        prefix: str = "",
+        region: str | None = None,
+        kms_required: bool = False,
+        **kwargs: Any
+    ) -> "FMF":
+        """
+        Configure S3 as the data source.
+        
+        Args:
+            bucket: S3 bucket name
+            prefix: Key prefix for filtering objects
+            region: AWS region
+            kms_required: Whether KMS encryption is required
+            **kwargs: Additional S3 configuration
+            
+        Returns:
+            Self for method chaining
+        """
+        from .types import SourceConfig
+        
+        source_config = SourceConfig.for_s3(
+            bucket=bucket,
+            prefix=prefix,
+            region=region,
+            kms_required=kms_required,
+            **kwargs
+        )
+        
+        return self.with_source("s3", **source_config.config)
+    
+    def from_local(
+        self,
+        root_path: str,
+        include_patterns: list[str] | None = None,
+        exclude_patterns: list[str] | None = None,
+        **kwargs: Any
+    ) -> "FMF":
+        """
+        Configure local filesystem as the data source.
+        
+        Args:
+            root_path: Root directory path
+            include_patterns: File patterns to include (e.g., ["**/*.md", "**/*.txt"])
+            exclude_patterns: File patterns to exclude (e.g., ["**/.git/**"])
+            **kwargs: Additional local filesystem configuration
+            
+        Returns:
+            Self for method chaining
+        """
+        from .types import SourceConfig
+        
+        source_config = SourceConfig.for_local(
+            root_path=root_path,
+            include_patterns=include_patterns,
+            exclude_patterns=exclude_patterns,
+            **kwargs
+        )
+        
+        return self.with_source("local", **source_config.config)
+    
+    # Add methods to FMF class
+    FMF.defaults = defaults
+    FMF.__enter__ = __enter__
+    FMF.__exit__ = __exit__
+    FMF.from_sharepoint = from_sharepoint
+    FMF.from_s3 = from_s3
+    FMF.from_local = from_local
+
+
+# Apply ergonomics methods
+_add_ergonomics_methods()
