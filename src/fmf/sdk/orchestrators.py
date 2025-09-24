@@ -68,11 +68,129 @@ def _count_outputs(run_dir: Path | None) -> int | None:
 
 
 def run_recipe_simple(config_path: str, recipe_path: str, **kwargs: Any) -> RunSummary:
+    """
+    Run a high-level recipe YAML using the fluent API.
+    
+    Recipes are designed for CI/Ops workflows. For code, prefer the SDK/CLI directly.
+    
+    Precedence order (highest to lowest):
+    1. Fluent overrides (passed via **kwargs)
+    2. Recipe YAML configuration
+    3. Base config file
+    
+    Args:
+        config_path: Path to FMF config file
+        recipe_path: Path to recipe YAML file
+        **kwargs: Fluent API overrides (service, rag, response, source, mode, etc.)
+        
+    Returns:
+        RunSummary with execution results and metrics
+    """
+    import yaml as _yaml
+    
+    # Load recipe YAML
+    with open(recipe_path, "r", encoding="utf-8") as f:
+        recipe_data = _yaml.safe_load(f) or {}
+    
+    # Create FMF instance with base config
     fmf = FMF.from_env(config_path)
+    
+    # Apply fluent overrides from kwargs (highest precedence)
+    if "service" in kwargs:
+        fmf = fmf.with_service(kwargs["service"])
+    elif "inference_provider" in kwargs:  # Legacy support
+        fmf = fmf.with_service(kwargs["inference_provider"])
+    
+    if "rag" in kwargs and kwargs["rag"]:
+        pipeline = kwargs.get("rag_pipeline") or recipe_data.get("rag", {}).get("pipeline") or "default_rag"
+        fmf = fmf.with_rag(enabled=True, pipeline=pipeline)
+    elif "use_recipe_rag" in kwargs and kwargs["use_recipe_rag"]:
+        pipeline = recipe_data.get("rag", {}).get("pipeline") or "default_rag"
+        fmf = fmf.with_rag(enabled=True, pipeline=pipeline)
+    elif recipe_data.get("rag", {}).get("pipeline"):
+        pipeline = recipe_data["rag"]["pipeline"]
+        fmf = fmf.with_rag(enabled=True, pipeline=pipeline)
+    
+    if "response" in kwargs:
+        fmf = fmf.with_response(kwargs["response"])
+    elif "output_format" in kwargs:  # Legacy support
+        fmf = fmf.with_response(kwargs["output_format"])
+    
+    if "source" in kwargs:
+        fmf = fmf.with_source(kwargs["source"])
+    elif "connector" in kwargs:
+        fmf = fmf.with_source(kwargs["connector"])
+    elif recipe_data.get("connector"):
+        fmf = fmf.with_source(recipe_data["connector"])
+    
+    # Determine inference method and parameters
+    recipe_type = recipe_data.get("recipe", "").strip()
+    if not recipe_type:
+        raise ValueError("Recipe file must specify 'recipe' field (csv_analyse, text_files, images_analyse)")
+    
+    # Build method kwargs from recipe data and fluent overrides
+    method_kwargs = {}
+    
+    if recipe_type == "csv_analyse":
+        method_kwargs.update({
+            "input": recipe_data["input"],
+            "text_col": recipe_data.get("text_col", "Comment"),
+            "id_col": recipe_data.get("id_col", "ID"),
+            "prompt": recipe_data.get("prompt", "Summarise"),
+            "save_csv": recipe_data.get("save", {}).get("csv"),
+            "save_jsonl": recipe_data.get("save", {}).get("jsonl"),
+            "expects_json": recipe_data.get("expects_json", True),
+        })
+    elif recipe_type == "text_files":
+        method_kwargs.update({
+            "prompt": recipe_data.get("prompt", "Summarise"),
+            "select": recipe_data.get("select"),
+            "save_jsonl": recipe_data.get("save", {}).get("jsonl"),
+            "expects_json": recipe_data.get("expects_json", True),
+        })
+    elif recipe_type == "images_analyse":
+        method_kwargs.update({
+            "prompt": recipe_data.get("prompt", "Describe"),
+            "select": recipe_data.get("select"),
+            "save_jsonl": recipe_data.get("save", {}).get("jsonl"),
+            "expects_json": recipe_data.get("expects_json", True),
+            "group_size": recipe_data.get("group_size"),
+        })
+    else:
+        raise ValueError(f"Unsupported recipe type: {recipe_type}")
+    
+    # Apply fluent overrides to method kwargs
+    for key in ["input", "text_col", "id_col", "prompt", "select", "group_size", "expects_json"]:
+        if key in kwargs:
+            method_kwargs[key] = kwargs[key]
+    
+    # Handle RAG options
+    rag_options = None
+    if fmf._rag_override and fmf._rag_override.get("enabled"):
+        rag_options = {
+            "pipeline": fmf._rag_override.get("pipeline", "default_rag"),
+            "top_k_text": kwargs.get("rag_top_k_text") or recipe_data.get("rag", {}).get("top_k_text", 2),
+            "top_k_images": kwargs.get("rag_top_k_images") or recipe_data.get("rag", {}).get("top_k_images", 2),
+        }
+    
+    # Add common options
+    method_kwargs.update({
+        "rag_options": rag_options,
+        "mode": kwargs.get("mode") or recipe_data.get("mode"),
+        "return_records": False,  # We don't need records for recipe execution
+    })
+    
+    # Execute using fluent API
     artefacts_dir = _resolve_artefacts_dir(fmf)
     artefacts_dir.mkdir(parents=True, exist_ok=True)
+    
     try:
-        fmf.run_recipe(recipe_path, **kwargs)
+        if recipe_type == "csv_analyse":
+            fmf.csv_analyse(**method_kwargs)
+        elif recipe_type == "text_files":
+            fmf.text_files(**method_kwargs)
+        elif recipe_type == "images_analyse":
+            fmf.images_analyse(**method_kwargs)
     except Exception as exc:  # pragma: no cover - bubbled up to caller
         notes = (
             f"Recipe failed: {exc}. If secrets are required, run "
