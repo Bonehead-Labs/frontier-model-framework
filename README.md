@@ -85,20 +85,37 @@ records = fmf.csv_analyse(input="./data/comments.csv", text_col="Comment", id_co
 | `text_to_json(...)` | `fmf text infer` | `recipe: text_files` | Text processing shortcut |
 | `images_analyse(...)` | `fmf images analyse` | `recipe: images_analyse` | Image analysis shortcut |
 
-**CLI & Recipes (Ops/CI)**
+**Scripts & CLI**
+
+SDK Scripts (Recommended)
 ```
-# Recipe-based workflows (thin scripts)
-python scripts/analyse_csv.py -r examples/recipes/csv_analyse.yaml -c fmf.yaml
+# CSV analysis with fluent API
+python scripts/analyse_csv.py --input ./data/comments.csv --text-col Comment --id-col ID --prompt "Summarize"
+
+# Text to JSON conversion
+python scripts/text_to_json_sdk.py --input ./data/documents.md --prompt "Extract key information"
+
+# With RAG enabled
+python scripts/analyse_csv.py --input ./data/comments.csv --text-col Comment --id-col ID --prompt "Analyze" --enable-rag
+
+# With custom service and output format
+python scripts/analyse_csv.py --input ./data/comments.csv --text-col Comment --id-col ID --prompt "Analyze" --service azure_openai --output-format jsonl
+```
+
+Legacy Recipe Wrappers (Deprecated)
+```
+# Recipe-based workflows (thin scripts) - DEPRECATED
+python scripts/analyse_csv_recipe.py -r examples/recipes/csv_analyse.yaml -c fmf.yaml
 python scripts/images_multi.py -r examples/recipes/images_multi.yaml -c fmf.yaml
 python scripts/text_to_json.py -r examples/recipes/text_to_json.yaml -c fmf.yaml
+```
 
-# CLI convenience
+CLI Convenience
+```
 uv run fmf csv analyse --input ./data/comments.csv --text-col Comment --id-col ID --prompt "Summarise" -c fmf.yaml
 ```
 
-Each script is a thin orchestrator around `fmf.run_recipe_simple`; pass `--json` for a compact summary or
-forward RAG overrides (`--enable-rag`, `--rag-pipeline`, etc.) when the recipe supports them. Use
-`--mode {auto,regular,stream}` to select the inference mode explicitly (defaults to `auto`).
+**Note:** Recipe-based scripts are deprecated in favor of fluent API scripts. Recipes are now recommended for CI/Ops only.
 
 4) Run the processing and sample chain (via uv):
 
@@ -112,13 +129,58 @@ uv run fmf run --chain examples/chains/sample.yaml -c fmf.yaml
 CLI Overview
 ------------
 
-- `fmf keys test [NAMES...]` – verify secrets resolution
-- `fmf connect ls <connector> --select "glob"` – list ingestible resources
-- `fmf process --connector <name> --select "glob"` – normalize + chunk to artefacts
-- `fmf prompt register <file>#<version>` – register prompt version in registry
-- `fmf infer --input file.txt [--mode auto|regular|stream]` – single‑shot completion using current provider
-- `fmf run --chain chains/sample.yaml` – execute a chain file (end‑to‑end)
-- `fmf export --sink <name> --input artefacts/<run_id>/outputs.jsonl` – write results
+The unified `fmf` CLI provides a single entry point for all FMF operations:
+
+### Primary Commands (SDK-First)
+
+- `fmf csv analyse --input file.csv --text-col COL --id-col COL --prompt "..."` – Analyze CSV files
+- `fmf text --input file.txt --prompt "..."` – Process text files to JSON
+- `fmf images --input file.png --prompt "..."` – Analyze images
+- `fmf keys test [NAMES...]` – Verify secrets resolution
+
+### Legacy Commands (Ops/CI)
+
+- `fmf connect ls <connector> --select "glob"` – List ingestible resources
+- `fmf process --connector <name> --select "glob"` – Normalize + chunk to artefacts
+- `fmf prompt register <file>#<version>` – Register prompt version in registry
+- `fmf infer --input file.txt [--mode auto|regular|stream]` – Single‑shot completion
+- `fmf run --chain chains/sample.yaml` – Execute a chain file (end‑to‑end)
+- `fmf export --sink <name> --input artefacts/<run_id>/outputs.jsonl` – Write results
+
+### CLI Examples
+
+```bash
+# Basic CSV analysis
+fmf csv analyse --input data/comments.csv --text-col Comment --id-col ID --prompt "Summarize"
+
+# With RAG enabled
+fmf csv analyse --input data/comments.csv --text-col Comment --id-col ID --prompt "Analyze" --rag
+
+# With custom service and output format
+fmf csv analyse --input data/comments.csv --text-col Comment --id-col ID --prompt "Analyze" --service azure_openai --response jsonl
+
+# Text processing
+fmf text --input "*.txt" --prompt "Extract key information" --output results.jsonl
+
+# Image analysis
+fmf images --input "*.png" --prompt "Describe the content" --rag --rag-pipeline documents
+
+# Dry run to see what would be done
+fmf csv analyse --input data/comments.csv --text-col Comment --id-col ID --prompt "Analyze" --dry-run
+```
+
+### Fluent API vs CLI Equivalence
+
+| Fluent API | CLI Command | Description |
+|------------|-------------|-------------|
+| `FMF.from_env("config.yaml")` | `fmf --config config.yaml` | Load configuration |
+| `.with_service("azure_openai")` | `--service azure_openai` | Set inference provider |
+| `.with_rag(enabled=True, pipeline="docs")` | `--rag --rag-pipeline docs` | Enable RAG |
+| `.with_response("csv")` | `--response csv` | Set output format |
+| `.with_source("s3", bucket="my-bucket")` | `--source s3` | Configure data source |
+| `.csv_analyse(input="file.csv", ...)` | `fmf csv analyse --input file.csv ...` | CSV analysis |
+| `.text_to_json(prompt="...", ...)` | `fmf text --prompt "..." ...` | Text processing |
+| `.images_analyse(prompt="...", ...)` | `fmf images --prompt "..." ...` | Image analysis |
 
 Repository Layout
 -----------------

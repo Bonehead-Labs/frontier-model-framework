@@ -1,44 +1,83 @@
 #!/usr/bin/env python3
-"""Run the text-to-JSON recipe (thin orchestrator)."""
+"""Text to JSON script - delegates to unified FMF CLI."""
 
-from __future__ import annotations
-
-import argparse
-import json
+import subprocess
 import sys
-
-from fmf.sdk import run_recipe_simple
+import warnings
+from pathlib import Path
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Run a text-to-JSON recipe via FMF")
-    ap.add_argument("-r", "--recipe", required=True, help="Path to recipe YAML")
-    ap.add_argument("-c", "--config", default="fmf.yaml", help="Path to FMF config")
-    ap.add_argument("--json", action="store_true", help="Emit JSON summary")
-    ap.add_argument("--enable-rag", action="store_true", help="Enable recipe-provided RAG")
-    ap.add_argument("--rag-pipeline", help="Override RAG pipeline name")
-    ap.add_argument("--rag-top-k-text", type=int, help="Override RAG text top-k")
-    ap.add_argument("--rag-top-k-images", type=int, help="Override RAG image top-k")
-    ap.add_argument("--mode", choices=["auto", "regular", "stream"], help="Inference mode override")
-    args = ap.parse_args()
-
-    summary = run_recipe_simple(
-        args.config,
-        args.recipe,
-        use_recipe_rag=args.enable_rag,
-        rag_pipeline=args.rag_pipeline,
-        rag_top_k_text=args.rag_top_k_text,
-        rag_top_k_images=args.rag_top_k_images,
-        mode=args.mode,
+    """Delegate to the unified FMF CLI."""
+    # Show deprecation warning
+    warnings.warn(
+        "This script is deprecated. Use 'fmf text' instead.",
+        DeprecationWarning,
+        stacklevel=2
     )
-
-    if args.json:
-        print(json.dumps(summary.__dict__, separators=(",", ":")))
-    else:
-        status = "OK" if summary.ok else "ERROR"
-        run_id = summary.run_id or ""
-        print(f"{status} {run_id}")
-    return 0 if summary.ok else 1
+    
+    # Get the script directory to find the fmf CLI
+    script_dir = Path(__file__).parent
+    project_root = script_dir.parent
+    
+    # Try to run the fmf CLI
+    try:
+        # Convert sys.argv to the new CLI format
+        args = sys.argv[1:]  # Remove script name
+        
+        # Map old arguments to new CLI format
+        new_args = ["fmf", "text"]
+        
+        # Process arguments
+        i = 0
+        while i < len(args):
+            arg = args[i]
+            
+            if arg in ["-r", "--recipe"]:
+                # Legacy recipe mode - show error
+                print("Error: Recipe mode is no longer supported. Use 'fmf text' instead.", file=sys.stderr)
+                return 1
+            elif arg in ["-c", "--config"]:
+                new_args.extend(["-c", args[i + 1]])
+                i += 2
+            elif arg == "--json":
+                # JSON output is handled differently in the new CLI
+                i += 1
+            elif arg == "--enable-rag":
+                new_args.append("--rag")
+                i += 1
+            elif arg == "--rag-pipeline":
+                new_args.extend(["--rag-pipeline", args[i + 1]])
+                i += 2
+            elif arg == "--mode":
+                new_args.extend(["--mode", args[i + 1]])
+                i += 2
+            elif arg in ["-h", "--help"]:
+                # Show help for the new CLI
+                try:
+                    subprocess.run(["fmf", "text", "--help"], check=True)
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    print("FMF CLI not found. Please install the package properly.")
+                    return 1
+                return 0
+            else:
+                # Unknown argument - pass through
+                new_args.append(arg)
+                i += 1
+        
+        # Run the new CLI
+        try:
+            result = subprocess.run(new_args, cwd=project_root, check=True)
+            return result.returncode
+        except subprocess.CalledProcessError as e:
+            return e.returncode
+        except FileNotFoundError:
+            print("Error: FMF CLI not found. Please ensure the package is installed correctly.", file=sys.stderr)
+            return 1
+            
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
