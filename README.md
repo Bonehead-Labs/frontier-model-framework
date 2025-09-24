@@ -72,6 +72,19 @@ fmf = (FMF.from_env("fmf.yaml")
 records = fmf.csv_analyse(input="./data/comments.csv", text_col="Comment", id_col="ID", prompt="Analyze sentiment")
 ```
 
+### Fluent API vs CLI/Recipes Mapping
+
+| Fluent API Method | CLI Equivalent | Recipe Equivalent | Description |
+|------------------|----------------|-------------------|-------------|
+| `with_service("azure_openai")` | `--set inference.provider=azure_openai` | `inference.provider: azure_openai` | Configure inference provider |
+| `with_rag(enabled=True, pipeline="docs")` | `--enable-rag --rag-pipeline docs` | `rag.pipelines[0].name: docs` | Enable RAG with pipeline |
+| `with_response("csv")` | `--set export.sinks[0].format=csv` | `export.sinks[0].format: csv` | Set output format |
+| `with_source("s3", bucket="my-bucket")` | `--set connectors[0].type=s3` | `connectors[0].type: s3` | Configure data source |
+| `run_inference("csv", "analyse", ...)` | `fmf csv analyse` | `recipe: csv_analyse` | Execute inference |
+| `csv_analyse(...)` | `fmf csv analyse` | `recipe: csv_analyse` | CSV analysis shortcut |
+| `text_to_json(...)` | `fmf text infer` | `recipe: text_files` | Text processing shortcut |
+| `images_analyse(...)` | `fmf images analyse` | `recipe: images_analyse` | Image analysis shortcut |
+
 **CLI & Recipes (Ops/CI)**
 ```
 # Recipe-based workflows (thin scripts)

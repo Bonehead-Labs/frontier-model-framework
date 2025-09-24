@@ -16,6 +16,14 @@ class FMF:
             self._cfg = load_config(self._config_path)
         except Exception:
             self._cfg = None
+        
+        # Fluent API state - these override config values
+        self._fluent_overrides: Dict[str, Any] = {}
+        self._service_override: Optional[str] = None
+        self._rag_override: Optional[Dict[str, Any]] = None
+        self._response_format: Optional[str] = None
+        self._source_connector: Optional[str] = None
+        self._source_kwargs: Dict[str, Any] = {}
 
     @classmethod
     def from_env(cls, config_path: str | None = None) -> "FMF":
@@ -89,7 +97,7 @@ class FMF:
             "continue_on_error": True,
         }
 
-        res = run_chain_config(chain, fmf_config_path=self._config_path or "fmf.yaml")
+        res = self._run_chain_with_effective_config(chain)
         if not return_records:
             return None
         # Load records from saved analysis JSONL
@@ -126,7 +134,7 @@ class FMF:
             rag_options=rag_options,
             mode=mode,
         )
-        res = run_chain_config(chain, fmf_config_path=self._config_path or "fmf.yaml")
+        res = self._run_chain_with_effective_config(chain)
         if not return_records:
             return None
         out_path = save_jsonl.replace("${run_id}", res.get("run_id", ""))
@@ -168,7 +176,7 @@ class FMF:
                 rag_options=rag_options,
                 mode=mode,
             )
-        res = run_chain_config(chain, fmf_config_path=self._config_path or "fmf.yaml")
+        res = self._run_chain_with_effective_config(chain)
         if not return_records:
             return None
         out_path = save_jsonl.replace("${run_id}", res.get("run_id", ""))
@@ -272,7 +280,7 @@ class FMF:
         Returns:
             Self for method chaining
         """
-        # TODO: Implement service configuration
+        self._service_override = name
         return self
 
     def with_rag(self, enabled: bool, pipeline: str | None = None) -> "FMF":
@@ -285,7 +293,34 @@ class FMF:
         Returns:
             Self for method chaining
         """
-        # TODO: Implement RAG configuration
+        if enabled and pipeline:
+            self._rag_override = {
+                "pipelines": [
+                    {
+                        "name": pipeline,
+                        "connector": self._source_connector or "local_docs",
+                        "select": ["**/*.md", "**/*.txt"],
+                        "modalities": ["text"],
+                        "max_text_items": 5
+                    }
+                ]
+            }
+        elif enabled:
+            # Enable RAG with default pipeline
+            self._rag_override = {
+                "pipelines": [
+                    {
+                        "name": "default_rag",
+                        "connector": self._source_connector or "local_docs",
+                        "select": ["**/*.md", "**/*.txt"],
+                        "modalities": ["text"],
+                        "max_text_items": 5
+                    }
+                ]
+            }
+        else:
+            # Disable RAG
+            self._rag_override = None
         return self
 
     def with_response(self, kind: Literal["csv", "json", "text", "jsonl"]) -> "FMF":
@@ -297,7 +332,7 @@ class FMF:
         Returns:
             Self for method chaining
         """
-        # TODO: Implement response format configuration
+        self._response_format = kind
         return self
 
     def with_source(self, connector: Literal["sharepoint", "s3", "local", "azure_blob"], **kwargs) -> "FMF":
@@ -310,7 +345,48 @@ class FMF:
         Returns:
             Self for method chaining
         """
-        # TODO: Implement source configuration
+        # Generate a connector name if not provided
+        connector_name = kwargs.pop('name', f"{connector}_docs")
+        
+        # Set default configurations based on connector type
+        if connector == "local":
+            default_config = {
+                "type": "local",
+                "root": kwargs.pop('root', './data'),
+                "include": kwargs.pop('include', ["**/*.md", "**/*.txt", "**/*.csv", "**/*.{png,jpg,jpeg}"])
+            }
+        elif connector == "s3":
+            default_config = {
+                "type": "s3",
+                "bucket": kwargs.pop('bucket', 'my-bucket'),
+                "prefix": kwargs.pop('prefix', ''),
+                "region": kwargs.pop('region', 'us-east-1'),
+                "kms_required": kwargs.pop('kms_required', False)
+            }
+        elif connector == "sharepoint":
+            default_config = {
+                "type": "sharepoint",
+                "site_url": kwargs.pop('site_url', 'https://contoso.sharepoint.com/sites/documents'),
+                "drive": kwargs.pop('drive', 'Documents'),
+                "root_path": kwargs.pop('root_path', ''),
+                "auth_profile": kwargs.pop('auth_profile', 'default')
+            }
+        elif connector == "azure_blob":
+            default_config = {
+                "type": "azure_blob",
+                "account_name": kwargs.pop('account_name', 'myaccount'),
+                "container_name": kwargs.pop('container_name', 'data'),
+                "prefix": kwargs.pop('prefix', ''),
+                "auth_profile": kwargs.pop('auth_profile', 'default')
+            }
+        else:
+            default_config = {"type": connector}
+        
+        # Merge with provided kwargs
+        default_config.update(kwargs)
+        
+        self._source_connector = connector_name
+        self._source_kwargs = default_config
         return self
 
     def run_inference(self, kind: Literal["csv", "text", "images"], method: str, **kwargs) -> Any:
@@ -324,8 +400,46 @@ class FMF:
         Returns:
             Inference results
         """
-        # TODO: Implement generic inference runner
-        raise NotImplementedError("run_inference is a stub - use specific methods like csv_analyse")
+        # Apply fluent configuration to kwargs
+        if self._source_connector and 'connector' not in kwargs:
+            kwargs['connector'] = self._source_connector
+        
+        if self._response_format:
+            if self._response_format == "csv" and 'save_csv' not in kwargs:
+                kwargs['save_csv'] = f"artefacts/${{run_id}}/analysis.csv"
+            elif self._response_format == "jsonl" and 'save_jsonl' not in kwargs:
+                kwargs['save_jsonl'] = f"artefacts/${{run_id}}/analysis.jsonl"
+        
+        # Apply RAG configuration if enabled
+        if self._rag_override and 'rag_options' not in kwargs:
+            # Extract RAG options from fluent configuration
+            rag_options = {
+                "pipeline": self._rag_override["pipelines"][0]["name"],
+                "top_k_text": 2,
+                "top_k_images": 2
+            }
+            kwargs['rag_options'] = rag_options
+        
+        # Delegate to appropriate method based on kind
+        if kind == "csv":
+            if method == "analyse":
+                return self.csv_analyse(**kwargs)
+            else:
+                raise ValueError(f"Unknown CSV method: {method}")
+        elif kind == "text":
+            if method == "to_json":
+                return self.text_to_json(**kwargs)
+            elif method == "files":
+                return self.text_files(**kwargs)
+            else:
+                raise ValueError(f"Unknown text method: {method}")
+        elif kind == "images":
+            if method == "analyse":
+                return self.images_analyse(**kwargs)
+            else:
+                raise ValueError(f"Unknown images method: {method}")
+        else:
+            raise ValueError(f"Unknown inference kind: {kind}")
 
     # --- Helpers ---
     def _auto_connector_name(self) -> str:
@@ -342,6 +456,73 @@ class FMF:
                 return getattr(c, "name", None) if not isinstance(c, dict) else c.get("name")
         name = getattr(connectors[0], "name", None) if not isinstance(connectors[0], dict) else connectors[0].get("name")
         return name or "local_docs"
+
+    def _get_effective_config(self) -> Dict[str, Any]:
+        """Get the effective configuration merging fluent overrides with base config."""
+        # Start with base config as dict
+        if isinstance(self._cfg, dict):
+            effective = dict(self._cfg)
+        else:
+            # Convert Pydantic model to dict
+            effective = self._cfg.model_dump() if hasattr(self._cfg, 'model_dump') else {}
+        
+        # Apply fluent overrides
+        effective.update(self._fluent_overrides)
+        
+        # Apply specific fluent overrides
+        if self._service_override:
+            if 'inference' not in effective:
+                effective['inference'] = {}
+            effective['inference']['provider'] = self._service_override
+        
+        if self._rag_override:
+            effective['rag'] = self._rag_override
+        
+        if self._source_connector:
+            # Add or update connector configuration
+            if 'connectors' not in effective:
+                effective['connectors'] = []
+            
+            # Find existing connector or create new one
+            connector_found = False
+            for i, conn in enumerate(effective['connectors']):
+                if isinstance(conn, dict) and conn.get('name') == self._source_connector:
+                    # Update existing connector
+                    effective['connectors'][i].update(self._source_kwargs)
+                    connector_found = True
+                    break
+            
+            if not connector_found:
+                # Create new connector
+                new_connector = {
+                    'name': self._source_connector,
+                    'type': self._source_connector.split('_')[0],  # Extract type from name
+                    **self._source_kwargs
+                }
+                effective['connectors'].append(new_connector)
+        
+        return effective
+
+    def _run_chain_with_effective_config(self, chain: Dict[str, Any]) -> Dict[str, Any]:
+        """Run chain config with effective configuration that includes fluent overrides."""
+        effective_config = self._get_effective_config()
+        
+        # Create a temporary config file with effective configuration
+        import tempfile
+        import yaml as _yaml
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            _yaml.safe_dump(effective_config, f, sort_keys=False)
+            temp_config_path = f.name
+        
+        try:
+            return run_chain_config(chain, fmf_config_path=temp_config_path)
+        finally:
+            import os
+            try:
+                os.unlink(temp_config_path)
+            except:
+                pass
 
     # --- Fluent API Convenience Methods ---
     def text_to_json(
