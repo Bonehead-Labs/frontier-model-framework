@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional, Literal
 
 from ..chain.runner import run_chain_config
 from ..config.loader import load_config
+from ..observability.logging import get_logger, log_config_fingerprint, log_processing_stats
+from ..observability.tracing import get_tracer, trace_operation
 from .types import RunResult
 import yaml as _yaml
 
@@ -100,9 +102,16 @@ class FMF:
     def __init__(self, *, config_path: Optional[str] = None) -> None:
         self._config_path = config_path or "fmf.yaml"
         self._cfg = None
+        self._logger = get_logger("fmf.client")
+        
         try:
             self._cfg = load_config(self._config_path)
-        except Exception:
+            if self._cfg:
+                # Log configuration fingerprint
+                config_dict = self._cfg.model_dump() if hasattr(self._cfg, 'model_dump') else self._cfg
+                log_config_fingerprint(config_dict)
+        except Exception as e:
+            self._logger.warning(f"Failed to load config from {self._config_path}: {e}")
             self._cfg = None
         
         # Fluent API state - these override config values
@@ -137,10 +146,22 @@ class FMF:
         rag_options: Dict[str, Any] | None = None,
         mode: str | None = None,
     ) -> RunResult:
+        self._logger.info("Starting CSV analysis", 
+                         input_file=input, 
+                         text_col=text_col, 
+                         id_col=id_col,
+                         prompt_length=len(prompt))
+        
         filename = os.path.basename(input)
         c = connector or self._auto_connector_name()
         save_csv = save_csv or "artefacts/${run_id}/analysis.csv"
         save_jsonl = save_jsonl or "artefacts/${run_id}/analysis.jsonl"
+        
+        self._logger.debug("CSV analysis configuration", 
+                          connector=c, 
+                          save_csv=save_csv, 
+                          save_jsonl=save_jsonl,
+                          expects_json=expects_json)
 
         output_block: Any = "analysed"
         if expects_json:
@@ -187,8 +208,14 @@ class FMF:
 
         start_time = time.time()
         try:
+            self._logger.debug("Executing CSV analysis chain")
             res = self._run_chain_with_effective_config(chain)
             end_time = time.time()
+            
+            duration_ms = (end_time - start_time) * 1000
+            self._logger.info("CSV analysis completed successfully", 
+                             duration_ms=duration_ms,
+                             run_id=res.get("run_id", "unknown"))
             
             return _build_run_result(
                 chain_result=res,
@@ -202,6 +229,10 @@ class FMF:
             )
         except Exception as e:
             end_time = time.time()
+            duration_ms = (end_time - start_time) * 1000
+            self._logger.error("CSV analysis failed", 
+                              error=str(e), 
+                              duration_ms=duration_ms)
             return RunResult(
                 success=False,
                 run_id="unknown",

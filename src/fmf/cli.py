@@ -12,7 +12,8 @@ from typer import Option, Argument
 from .sdk import FMF
 from .config.loader import load_config
 from .auth import build_provider, AuthError
-from .observability.logging import setup_logging
+from .observability.logging import get_logger, set_verbose
+from .observability.tracing import get_tracer, enable_tracing
 from .connectors import build_connector
 from .processing.loaders import load_document_from_bytes
 from .processing.chunking import chunk_text
@@ -62,28 +63,43 @@ def csv_analyse(
     config: str = Option("fmf.yaml", "-c", "--config", help="Path to FMF config file"),
     verbose: bool = Option(False, "-v", "--verbose", help="Enable verbose output"),
     dry_run: bool = Option(False, "--dry-run", help="Show what would be done without executing"),
+    tracing: bool = Option(False, "--tracing", help="Enable OpenTelemetry tracing"),
 ) -> None:
     """Analyze CSV files using FMF fluent API."""
+    # Set up logging and tracing
+    set_verbose(verbose)
+    logger = get_logger("fmf.csv_analyse", verbose)
+    
+    if tracing:
+        enable_tracing("fmf-csv-analyse")
+    
     if not Path(input_file).exists():
+        logger.error(f"Input file not found: {input_file}")
         typer.echo(f"Error: Input file '{input_file}' not found.", err=True)
         raise typer.Exit(1)
     
     try:
         # Build FMF instance with fluent API
+        logger.info("Initializing FMF client", config_file=config)
         fmf = FMF.from_env(config)
         
         # Apply fluent configuration
+        logger.debug("Applying fluent configuration")
         if service:
+            logger.info(f"Setting service provider: {service}")
             fmf = fmf.with_service(service)
         
         if rag:
             pipeline = rag_pipeline or "default_rag"
+            logger.info(f"Enabling RAG with pipeline: {pipeline}")
             fmf = fmf.with_rag(enabled=True, pipeline=pipeline)
         
         if response:
+            logger.info(f"Setting response format: {response}")
             fmf = fmf.with_response(response)
         
         if source:
+            logger.info(f"Setting source connector: {source}")
             fmf = fmf.with_source(source)
         
         # Prepare RAG options
@@ -94,8 +110,10 @@ def csv_analyse(
                 "top_k_text": 2,
                 "top_k_images": 2,
             }
+            logger.debug("RAG options configured", rag_options=rag_options)
         
         if dry_run:
+            logger.info("Dry run mode - showing configuration")
             typer.echo(f"Would analyze CSV: {input_file}")
             typer.echo(f"  Text column: {text_col}")
             typer.echo(f"  ID column: {id_col}")
@@ -111,29 +129,44 @@ def csv_analyse(
             return
         
         # Run CSV analysis
-        records = fmf.csv_analyse(
-            input=input_file,
-            text_col=text_col,
-            id_col=id_col,
-            prompt=prompt,
-            save_csv=output_csv,
-            save_jsonl=output_jsonl,
-            expects_json=expects_json,
-            rag_options=rag_options,
-            mode=mode,
-            return_records=True
-        )
+        logger.info("Starting CSV analysis", 
+                   input_file=input_file, 
+                   text_col=text_col, 
+                   id_col=id_col,
+                   prompt_length=len(prompt))
+        
+        with logger.operation("csv_analyse", 
+                            input_file=input_file,
+                            text_col=text_col,
+                            id_col=id_col):
+            records = fmf.csv_analyse(
+                input=input_file,
+                text_col=text_col,
+                id_col=id_col,
+                prompt=prompt,
+                save_csv=output_csv,
+                save_jsonl=output_jsonl,
+                expects_json=expects_json,
+                rag_options=rag_options,
+                mode=mode,
+                return_records=True
+            )
         
         if records:
+            logger.info("CSV analysis completed successfully", 
+                       records_processed=len(records),
+                       input_file=input_file)
             typer.echo(f"✓ Processed {len(records)} records from {input_file}")
             if output_csv:
                 typer.echo(f"  CSV output: {output_csv}")
             if output_jsonl:
                 typer.echo(f"  JSONL output: {output_jsonl}")
         else:
+            logger.warning("No records processed", input_file=input_file)
             typer.echo("⚠ No records processed")
             
     except Exception as e:
+        logger.error("CSV analysis failed", error=str(e), input_file=input_file)
         typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(1)
 
@@ -158,14 +191,24 @@ def text_to_json(
     config: str = Option("fmf.yaml", "-c", "--config", help="Path to FMF config file"),
     verbose: bool = Option(False, "-v", "--verbose", help="Enable verbose output"),
     dry_run: bool = Option(False, "--dry-run", help="Show what would be done without executing"),
+    tracing: bool = Option(False, "--tracing", help="Enable OpenTelemetry tracing"),
 ) -> None:
     """Convert text files to JSON using FMF fluent API."""
+    # Set up logging and tracing
+    set_verbose(verbose)
+    logger = get_logger("fmf.text_to_json", verbose)
+    
+    if tracing:
+        enable_tracing("fmf-text-to-json")
+    
     if not Path(input_pattern).exists() and "*" not in input_pattern:
+        logger.error(f"Input file not found: {input_pattern}")
         typer.echo(f"Error: Input file '{input_pattern}' not found.", err=True)
         raise typer.Exit(1)
     
     try:
         # Build FMF instance with fluent API
+        logger.info("Initializing FMF client", config_file=config)
         fmf = FMF.from_env(config)
         
         # Apply fluent configuration
@@ -406,11 +449,11 @@ def version_callback(
         try:
             import importlib.metadata as importlib_metadata
         except Exception:  # pragma: no cover
-            import importlib_metadata  # type: ignore
+                import importlib_metadata  # type: ignore
 
-        try:
+            try:
             version_str = importlib_metadata.version("frontier-model-framework")
-        except importlib_metadata.PackageNotFoundError:
+            except importlib_metadata.PackageNotFoundError:
             version_str = "0.0.0+local"
         typer.echo(version_str)
         raise typer.Exit(0)

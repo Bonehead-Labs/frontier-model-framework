@@ -19,7 +19,7 @@ from ..inference.base_client import Message, Completion
 from ..config.loader import load_config
 from ..exporters import build_exporter
 from ..observability import metrics as _metrics
-from ..observability.tracing import trace_span
+from ..observability.tracing import get_tracer
 from ..prompts.registry import build_prompt_registry
 from ..rag import build_rag_pipelines
 from ..core.ids import chunk_id as compute_chunk_id
@@ -371,7 +371,8 @@ def _collect_inputs(ctx: RuntimeContext) -> InputCollections:
 
     selector = chain.inputs.get("select")
 
-    with trace_span("chain.inputs", connector=chain.inputs.get("connector"), run_id=ctx.run_id):
+    tracer = get_tracer()
+    with tracer.span("chain.inputs", {"connector": chain.inputs.get("connector"), "run_id": ctx.run_id}):
         image_docs: list[Document] = []
         for ref in connector.list(selector=selector):
             with connector.open(ref, mode="rb") as fh:
@@ -601,12 +602,15 @@ def _execute_chain_steps(ctx: RuntimeContext, inputs: InputCollections) -> Execu
         step_telemetries: List[InferenceTelemetry] = []
 
         def _invoke(messages: list[Message], *, params: Dict[str, Any]) -> Completion:
-            with trace_span(
+            tracer = get_tracer()
+            with tracer.span(
                 f"step.{step.id}",
-                step_id=step.id,
-                run_id=ctx.run_id,
-                mode=step_mode,
-                provider=ctx.provider_name or "",
+                {
+                    "step_id": step.id,
+                    "run_id": ctx.run_id,
+                    "mode": step_mode,
+                    "provider": ctx.provider_name or "",
+                }
             ):
                 completion, telemetry = invoke_with_mode(
                     client,
