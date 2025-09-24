@@ -49,29 +49,43 @@ uv sync -E aws -E azure     # installs base + selected extras from pyproject
 cp examples/fmf.example.yaml fmf.yaml
 ```
 
-3) Quickest path — run a recipe (recommended) or use the SDK/CLI helpers:
+3) **Quick Start with Python SDK** (recommended):
 
-Recipes (thin scripts)
+```python
+from fmf.sdk import FMF
+
+# Simple analysis
+fmf = FMF.from_env("fmf.yaml")
+records = fmf.csv_analyse(
+    input="./data/comments.csv", 
+    text_col="Comment", 
+    id_col="ID", 
+    prompt="Summarise this comment"
+)
+
+# Fluent API for advanced configuration
+fmf = (FMF.from_env("fmf.yaml")
+       .with_service("azure_openai")
+       .with_rag(enabled=True, pipeline="documents")
+       .with_response("csv"))
+
+records = fmf.csv_analyse(input="./data/comments.csv", text_col="Comment", id_col="ID", prompt="Analyze sentiment")
 ```
+
+**CLI & Recipes (Ops/CI)**
+```
+# Recipe-based workflows (thin scripts)
 python scripts/analyse_csv.py -r examples/recipes/csv_analyse.yaml -c fmf.yaml
 python scripts/images_multi.py -r examples/recipes/images_multi.yaml -c fmf.yaml
 python scripts/text_to_json.py -r examples/recipes/text_to_json.yaml -c fmf.yaml
+
+# CLI convenience
+uv run fmf csv analyse --input ./data/comments.csv --text-col Comment --id-col ID --prompt "Summarise" -c fmf.yaml
 ```
+
 Each script is a thin orchestrator around `fmf.run_recipe_simple`; pass `--json` for a compact summary or
 forward RAG overrides (`--enable-rag`, `--rag-pipeline`, etc.) when the recipe supports them. Use
 `--mode {auto,regular,stream}` to select the inference mode explicitly (defaults to `auto`).
-
-Python SDK
-```
-from fmf.sdk import FMF
-fmf = FMF.from_env("fmf.yaml")
-fmf.csv_analyse(input="./data/comments.csv", text_col="Comment", id_col="ID", prompt="Summarise")
-```
-
-CLI convenience
-```
-uv run fmf csv analyse --input ./data/comments.csv --text-col Comment --id-col ID --prompt "Summarise" -c fmf.yaml
-```
 
 4) Run the processing and sample chain (via uv):
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 
 from ..chain.runner import run_chain_config
 from ..config.loader import load_config
@@ -262,6 +262,71 @@ class FMF:
             }
         raise ValueError(f"Unsupported or missing recipe type: {rtype!r}")
 
+    # --- Fluent Builder API ---
+    def with_service(self, name: str) -> "FMF":
+        """Configure the inference service provider.
+        
+        Args:
+            name: Service name (e.g., "azure_openai", "aws_bedrock")
+            
+        Returns:
+            Self for method chaining
+        """
+        # TODO: Implement service configuration
+        return self
+
+    def with_rag(self, enabled: bool, pipeline: str | None = None) -> "FMF":
+        """Configure RAG (Retrieval-Augmented Generation) settings.
+        
+        Args:
+            enabled: Whether to enable RAG
+            pipeline: Optional pipeline name for RAG retrieval
+            
+        Returns:
+            Self for method chaining
+        """
+        # TODO: Implement RAG configuration
+        return self
+
+    def with_response(self, kind: Literal["csv", "json", "text", "jsonl"]) -> "FMF":
+        """Configure the response format.
+        
+        Args:
+            kind: Response format type
+            
+        Returns:
+            Self for method chaining
+        """
+        # TODO: Implement response format configuration
+        return self
+
+    def with_source(self, connector: Literal["sharepoint", "s3", "local", "azure_blob"], **kwargs) -> "FMF":
+        """Configure the data source connector.
+        
+        Args:
+            connector: Connector type
+            **kwargs: Connector-specific configuration
+            
+        Returns:
+            Self for method chaining
+        """
+        # TODO: Implement source configuration
+        return self
+
+    def run_inference(self, kind: Literal["csv", "text", "images"], method: str, **kwargs) -> Any:
+        """Run inference using the configured settings.
+        
+        Args:
+            kind: Type of inference to run
+            method: Specific method to use
+            **kwargs: Method-specific parameters
+            
+        Returns:
+            Inference results
+        """
+        # TODO: Implement generic inference runner
+        raise NotImplementedError("run_inference is a stub - use specific methods like csv_analyse")
+
     # --- Helpers ---
     def _auto_connector_name(self) -> str:
         cfg = self._cfg
@@ -277,6 +342,34 @@ class FMF:
                 return getattr(c, "name", None) if not isinstance(c, dict) else c.get("name")
         name = getattr(connectors[0], "name", None) if not isinstance(connectors[0], dict) else connectors[0].get("name")
         return name or "local_docs"
+
+    # --- Fluent API Convenience Methods ---
+    def text_to_json(
+        self,
+        *,
+        prompt: str,
+        connector: str | None = None,
+        select: List[str] | None = None,
+        save_jsonl: str | None = None,
+        expects_json: bool = True,
+        return_records: bool = False,
+        rag_options: Dict[str, Any] | None = None,
+        mode: str | None = None,
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Convert text files to JSON using fluent API pattern.
+        
+        This is a convenience wrapper around text_files() that follows the fluent API naming.
+        """
+        return self.text_files(
+            prompt=prompt,
+            connector=connector,
+            select=select,
+            save_jsonl=save_jsonl,
+            expects_json=expects_json,
+            return_records=return_records,
+            rag_options=rag_options,
+            mode=mode,
+        )
 
 
 def _read_jsonl(path: str):
