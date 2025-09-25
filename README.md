@@ -1,4 +1,22 @@
 # Frontier Model Framework (FMF)
+```                                                                    
+FFFFFFFFFFFFFFFFFFFFFF   MMMMMMMM               MMMMMMMM   FFFFFFFFFFFFFFFFFFFFFF
+F::::::::::::::::::::F   M:::::::M             M:::::::M   F::::::::::::::::::::F
+F::::::::::::::::::::F   M::::::::M           M::::::::M   F::::::::::::::::::::F
+FF::::::FFFFFFFFF::::F   M:::::::::M         M:::::::::M   FF::::::FFFFFFFFF::::F
+  F:::::F       FFFFFF   M::::::::::M       M::::::::::M     F:::::F       FFFFFF
+  F:::::F                M:::::::::::M     M:::::::::::M     F:::::F             
+  F::::::FFFFFFFFFF      M:::::::M::::M   M::::M:::::::M     F::::::FFFFFFFFFF   
+  F:::::::::::::::F      M::::::M M::::M M::::M M::::::M     F:::::::::::::::F   
+  F:::::::::::::::F      M::::::M  M::::M::::M  M::::::M     F:::::::::::::::F   
+  F::::::FFFFFFFFFF      M::::::M   M:::::::M   M::::::M     F::::::FFFFFFFFFF   
+  F:::::F                M::::::M    M:::::M    M::::::M     F:::::F             
+  F:::::F                M::::::M     MMMMM     M::::::M     F:::::F             
+FF:::::::FF              M::::::M               M::::::M   FF:::::::FF           
+F::::::::FF              M::::::M               M::::::M   F::::::::FF           
+F::::::::FF              M::::::M               M::::::M   F::::::::FF           
+FFFFFFFFFFF              MMMMMMMM               MMMMMMMM   FFFFFFFFFFF           
+```                                                                          
 
 FMF is a pluggable, provider-agnostic framework for building LLM-powered data workflows across Azure OpenAI, AWS Bedrock, and more. It provides unified configuration, connectors, processing, inference adapters, prompt versioning, exports, and a simple CLI for running pipelines end-to-end.
 
