@@ -15,3 +15,7 @@ wheels/
 # Cache
 .uv_cache
 .pytest_cache
+
+# Sample testing
+/sample
+/artefacts
