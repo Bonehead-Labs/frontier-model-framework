@@ -58,3 +58,7 @@ dev = [
   "ruff>=0.1,<1",
   "mypy>=1.0,<2",
 ]
+
+[tool.uv]
+allow-insecure-host = ["files.pythonhosted.org","pypi.org"]
+package = true

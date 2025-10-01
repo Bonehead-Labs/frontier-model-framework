@@ -471,7 +471,7 @@ wheels = [
 [[package]]
 name = "frontier-model-framework"
 version = "0.3.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
