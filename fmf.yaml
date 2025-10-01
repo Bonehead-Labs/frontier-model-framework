@@ -5,7 +5,7 @@ artefacts_dir: artefacts
 auth:
   provider: env
   env:
-    file: ""  # optional path to .env if you use one
+    file: ".env"  # optional path to .env if you use one
 
 connectors:
   # Microsoft Fabric (OneLake) table materialised as Parquet/Delta on disk
@@ -58,9 +58,9 @@ inference:
   provider: azure_openai
 
   azure_openai:
-    endpoint: "https://<your-resource>.openai.azure.com/"
+    endpoint: "https://analyticsaitest.openai.azure.com/"
     api_version: "2024-02-15-preview"
-    deployment: "<your-deployment>"
+    deployment: "gpt-4.1-nano"
     temperature: 0.2
     max_tokens: 256
 
