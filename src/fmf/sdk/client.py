@@ -188,13 +188,17 @@ class FMF:
         if mode:
             step["infer"] = {"mode": mode}
 
+        pass_through_cols = [id_col]
+        if text_col not in pass_through_cols:
+            pass_through_cols.append(text_col)
+
         chain = {
             "name": "csv-analyse",
             "inputs": {
                 "connector": c,
                 "select": [filename],
                 "mode": "table_rows",
-                "table": {"text_column": text_col, "pass_through": [id_col]},
+                "table": {"text_column": text_col, "pass_through": pass_through_cols},
             },
             "steps": [step],
             "outputs": [
@@ -202,7 +206,7 @@ class FMF:
                 {"save": save_csv, "from": "analysed", "as": "csv"},
             ],
             "concurrency": 4,
-            "continue_on_error": True,
+            "continue_on_error": False,
         }
 
         start_time = time.time()

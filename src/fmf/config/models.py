@@ -213,16 +213,26 @@ class DynamoDbSink(BaseModel):
 
 
 class RedshiftSink(BaseModel):
+    model_config = _ConfigDict(populate_by_name=True)
+
     name: str
     type: Literal["redshift"]
     cluster_id: str
     database: str
-    schema: str
+    schema_: str = Field(alias="schema")
     table: str
     unload_staging_s3: str
     copy_options: Dict[str, Any] | None = None
     mode: Literal["append", "upsert", "overwrite"] = "upsert"
     key_fields: List[str] | None = None
+
+    @property
+    def schema(self) -> str:
+        return self.schema_
+
+    @schema.setter
+    def schema(self, value: str) -> None:
+        self.schema_ = value
 
 
 class DeltaSink(BaseModel):

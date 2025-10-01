@@ -31,6 +31,7 @@ from ..inference.runtime import (
     normalize_mode,
 )
 from .loader import ChainConfig, load_chain
+from ..auth.providers import build_provider as build_auth_provider
 
 
 def _limit_joined(text: str) -> str:
@@ -341,7 +342,37 @@ def _prepare_environment(
 
     preg_cfg = getattr(cfg, "prompt_registry", None) if not isinstance(cfg, dict) else cfg.get("prompt_registry")
     registry = build_prompt_registry(preg_cfg)
-    client = build_llm_client(inference_cfg)
+    
+    # Build auth provider and resolve Azure API key if needed
+    auth_cfg = getattr(cfg, "auth", None) if not isinstance(cfg, dict) else cfg.get("auth")
+    api_key = None
+    if auth_cfg and provider_name == "azure_openai":
+        try:
+            auth_provider = build_auth_provider(auth_cfg)
+            # Try each possible API key name individually (resolve() fails if ANY key is missing)
+            for key_name in ["AZURE_OPENAI_API_KEY", "OPENAI_API_KEY"]:
+                try:
+                    secrets = auth_provider.resolve([key_name])
+                    api_key = secrets.get(key_name)
+                    if api_key:
+                        break
+                except Exception:
+                    continue
+        except Exception:
+            # If resolution fails, fall back to environment variables
+            pass
+    
+    # Build LLM client with API key if available
+    if api_key and provider_name == "azure_openai":
+        # Manually build Azure client with API key
+        from ..inference.azure_openai import AzureOpenAIClient
+        subcfg = getattr(inference_cfg, "azure_openai", None) if not isinstance(inference_cfg, dict) else inference_cfg.get("azure_openai")
+        endpoint = getattr(subcfg, "endpoint", None) if not isinstance(subcfg, dict) else subcfg.get("endpoint")
+        api_version = getattr(subcfg, "api_version", None) if not isinstance(subcfg, dict) else subcfg.get("api_version")
+        deployment = getattr(subcfg, "deployment", None) if not isinstance(subcfg, dict) else subcfg.get("deployment")
+        client = AzureOpenAIClient(endpoint=endpoint, api_version=api_version, deployment=deployment, api_key=api_key)
+    else:
+        client = build_llm_client(inference_cfg)
 
     rag_cfg = getattr(cfg, "rag", None) if not isinstance(cfg, dict) else cfg.get("rag")
     rag_pipelines = build_rag_pipelines(rag_cfg, connectors=connectors_cfg, processing_cfg=processing_cfg)

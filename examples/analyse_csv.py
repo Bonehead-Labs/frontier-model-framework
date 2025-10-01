@@ -15,17 +15,17 @@ def main() -> None:
     # Configure using fluent API
     fmf = (fmf
            .with_service("azure_openai")
-           .with_rag(enabled=True, pipeline="documents")
-           .with_response("both")
-           .with_source("local", root="./data"))
+           .with_response("both"))
     
     # Run CSV analysis
     result = fmf.csv_analyse(
-        input="data/comments.csv",
+        input="data/sample.csv",
         text_col="Comment",
         id_col="ID",
         prompt="Analyze sentiment and extract key themes from this comment",
-        return_records=True
+        return_records=True,
+        connector="local_docs",  # Explicitly specify the connector
+        mode="regular"
     )
     
     # Display results

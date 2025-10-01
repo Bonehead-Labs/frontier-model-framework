@@ -13,16 +13,46 @@ class AzureOpenAIClient:
     def __init__(
         self,
         *,
-        endpoint: str,
-        api_version: str,
-        deployment: str,
+        endpoint: str | None,
+        api_version: str | None,
+        deployment: str | None,
         rate_per_sec: float = 5.0,
         transport: Optional[Callable[[dict], dict]] = None,
         stream_transport: Optional[Callable[[dict], Iterable[dict]]] = None,
+        api_key: str | None = None,
     ) -> None:
-        self.endpoint = endpoint
-        self.api_version = api_version
-        self.deployment = deployment
+        env_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT") or os.getenv("OPENAI_API_BASE")
+        env_version = os.getenv("AZURE_OPENAI_API_VERSION")
+        env_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT") or os.getenv("OPENAI_DEPLOYMENT")
+        env_api_key = os.getenv("OPENAI_API_KEY") or os.getenv("AZURE_OPENAI_API_KEY")
+
+        self.endpoint = (endpoint or env_endpoint or "").rstrip("/")
+        self.api_version = api_version or env_version or ""
+        self.deployment = deployment or env_deployment or ""
+        self.api_key = api_key or env_api_key or ""
+
+        missing: list[str] = []
+        alerts: list[str] = []
+        if not self.endpoint:
+            missing.append("endpoint")
+        elif "<" in self.endpoint:
+            alerts.append("endpoint contains placeholder text")
+        if not self.api_version:
+            missing.append("api_version")
+        if not self.deployment:
+            missing.append("deployment")
+        if not self.api_key:
+            missing.append("api_key (set AZURE_OPENAI_API_KEY or OPENAI_API_KEY)")
+
+        if missing:
+            raise InferenceError(
+                "Azure OpenAI configuration missing required value(s): " + ", ".join(missing)
+            )
+        if alerts:
+            raise InferenceError(
+                "Azure OpenAI configuration appears to use placeholder value(s): " + ", ".join(alerts)
+            )
+
         self._transport = transport
         self._stream_transport = stream_transport
         self._rl = RateLimiter(rate_per_sec)
@@ -37,9 +67,8 @@ class AzureOpenAIClient:
 
         url = f"{self.endpoint}/openai/deployments/{self.deployment}/chat/completions?api-version={self.api_version}"
         req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
-        api_key = os.getenv("OPENAI_API_KEY") or os.getenv("AZURE_OPENAI_API_KEY")
-        if api_key:
-            req.add_header("api-key", api_key)
+        if self.api_key:
+            req.add_header("api-key", self.api_key)
         try:
             with urllib.request.urlopen(req) as resp:
                 return json.loads(resp.read().decode("utf-8"))
