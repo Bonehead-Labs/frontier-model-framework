@@ -35,7 +35,6 @@ def main() -> None:
     # Configure using fluent API
     fmf = (fmf
            .with_service("azure_openai")
-           .with_rag(enabled=True, pipeline="documents")
            .with_response("both")
            .with_source("local", root="./data"))
     

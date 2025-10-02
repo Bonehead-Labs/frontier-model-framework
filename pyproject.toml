@@ -48,6 +48,9 @@ tracing = [
 dataframe = [
   "pandas>=2.0,<3",
 ]
+examples = [
+  "pandas>=2.0,<3",
+]
 test = [
   "pytest>=8,<9",
   "pytest-cov>=5,<6",
