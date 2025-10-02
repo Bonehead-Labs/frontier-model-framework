@@ -343,12 +343,21 @@ def _prepare_environment(
     preg_cfg = getattr(cfg, "prompt_registry", None) if not isinstance(cfg, dict) else cfg.get("prompt_registry")
     registry = build_prompt_registry(preg_cfg)
     
-    # Build auth provider and resolve Azure API key if needed
+    # Build auth provider for all providers (needed for AWS credentials and Azure API keys)
     auth_cfg = getattr(cfg, "auth", None) if not isinstance(cfg, dict) else cfg.get("auth")
+    auth_provider = None
     api_key = None
-    if auth_cfg and provider_name == "azure_openai":
+    
+    if auth_cfg:
         try:
             auth_provider = build_auth_provider(auth_cfg)
+        except Exception:
+            # If auth provider build fails, continue without it
+            pass
+    
+    # Resolve Azure API key if needed
+    if auth_provider and provider_name == "azure_openai":
+        try:
             # Try each possible API key name individually (resolve() fails if ANY key is missing)
             for key_name in ["AZURE_OPENAI_API_KEY", "OPENAI_API_KEY"]:
                 try:
@@ -372,7 +381,8 @@ def _prepare_environment(
         deployment = getattr(subcfg, "deployment", None) if not isinstance(subcfg, dict) else subcfg.get("deployment")
         client = AzureOpenAIClient(endpoint=endpoint, api_version=api_version, deployment=deployment, api_key=api_key)
     else:
-        client = build_llm_client(inference_cfg)
+        # Pass auth provider to build_llm_client so it can resolve AWS credentials from .env
+        client = build_llm_client(inference_cfg, auth_provider=auth_provider)
 
     rag_cfg = getattr(cfg, "rag", None) if not isinstance(cfg, dict) else cfg.get("rag")
     rag_pipelines = build_rag_pipelines(rag_cfg, connectors=connectors_cfg, processing_cfg=processing_cfg)

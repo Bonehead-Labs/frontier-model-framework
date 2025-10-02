@@ -14,9 +14,9 @@ def main() -> None:
 
     # Configure using fluent API
     fmf = (fmf
-           .with_service("azure_openai")
+           .with_service("aws_bedrock")
            .with_response("jsonl")
-           .with_source("local", name="local_tmp_images", root="./sample/images", include=["*.{png,jpg,jpeg}"]))
+           .with_source("local", name="local_tmp_images", root="./data", include=["*.{png,jpg,jpeg}"]))
 
     # Run images analysis
     result = fmf.images_analyse(

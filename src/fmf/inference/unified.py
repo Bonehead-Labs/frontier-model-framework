@@ -13,7 +13,7 @@ def _subconfig(cfg: Any, key: str) -> Any:
     return getattr(cfg, key, None)
 
 
-def build_llm_client(cfg: Any):
+def build_llm_client(cfg: Any, *, auth_provider=None):
     provider = getattr(cfg, "provider", None) if not isinstance(cfg, dict) else cfg.get("provider")
     if provider is None:
         raise ValueError("Inference provider not specified in configuration")
@@ -32,7 +32,28 @@ def build_llm_client(cfg: Any):
     if provider == "aws_bedrock":
         region = getattr(subcfg, "region", None) if not isinstance(subcfg, dict) else subcfg.get("region")
         model_id = getattr(subcfg, "model_id", None) if not isinstance(subcfg, dict) else subcfg.get("model_id")
-        return BedrockClient(region=region, model_id=model_id)
+        
+        # Resolve AWS credentials from auth provider if available
+        aws_credentials = None
+        if auth_provider:
+            try:
+                # Try to resolve required credentials first
+                aws_credentials = auth_provider.resolve([
+                    "AWS_ACCESS_KEY_ID",
+                    "AWS_SECRET_ACCESS_KEY"
+                ])
+                # Try to add session token if available (optional)
+                try:
+                    session_token = auth_provider.resolve(["AWS_SESSION_TOKEN"])
+                    aws_credentials.update(session_token)
+                except Exception:
+                    # Session token is optional
+                    pass
+            except Exception:
+                # If credentials can't be resolved, fall back to default AWS credential chain
+                pass
+        
+        return BedrockClient(region=region, model_id=model_id, aws_credentials=aws_credentials)
     raise ValueError(f"Unsupported inference provider: {provider}. Known providers: {', '.join(available_providers())}")
 
 

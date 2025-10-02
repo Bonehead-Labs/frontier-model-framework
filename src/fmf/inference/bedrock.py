@@ -18,6 +18,7 @@ class BedrockClient:
         rate_per_sec: float = 5.0,
         transport: Optional[Callable[[dict], dict]] = None,
         stream_transport: Optional[Callable[[dict], Iterable[dict]]] = None,
+        aws_credentials: Optional[dict[str, str]] = None,
     ) -> None:
         self.region = region
         self.model_id = model_id
@@ -25,6 +26,7 @@ class BedrockClient:
         self._stream_transport = stream_transport
         self._rl = RateLimiter(rate_per_sec)
         self._last_retries = 0
+        self._aws_credentials = aws_credentials
 
     def supports_streaming(self) -> bool:
         return self._stream_transport is not None
@@ -34,24 +36,35 @@ class BedrockClient:
         import os
 
         # Try to get credentials from multiple sources in order of preference:
-        # 1. Environment variables (from FMF auth system - highest priority for FMF users)
-        # 2. Standard AWS credentials file (~/.aws/credentials)
-        # 3. IAM roles (EC2, ECS, Lambda, etc.)
+        # 1. Explicit credentials passed to constructor (from FMF auth system - highest priority)
+        # 2. Environment variables
+        # 3. Standard AWS credentials file (~/.aws/credentials)
+        # 4. IAM roles (EC2, ECS, Lambda, etc.)
 
         client_kwargs = {"region_name": self.region}
 
-        # Check 1: Environment variables (FMF auth system priority)
-        env_access_key = os.environ.get("AWS_ACCESS_KEY_ID")
-        env_secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
-        env_session_token = os.environ.get("AWS_SESSION_TOKEN")
-
-        if env_access_key and env_secret_key:
+        # Check 1: Explicit credentials from FMF auth system (highest priority)
+        if self._aws_credentials:
+            access_key = self._aws_credentials.get("AWS_ACCESS_KEY_ID")
+            secret_key = self._aws_credentials.get("AWS_SECRET_ACCESS_KEY")
+            session_token = self._aws_credentials.get("AWS_SESSION_TOKEN")
+            
+            if access_key and secret_key:
+                client_kwargs.update({
+                    "aws_access_key_id": access_key,
+                    "aws_secret_access_key": secret_key,
+                })
+                if session_token:
+                    client_kwargs["aws_session_token"] = session_token
+        # Check 2: Environment variables
+        elif os.environ.get("AWS_ACCESS_KEY_ID") and os.environ.get("AWS_SECRET_ACCESS_KEY"):
             client_kwargs.update({
-                "aws_access_key_id": env_access_key,
-                "aws_secret_access_key": env_secret_key,
-                "aws_session_token": env_session_token  # Optional
+                "aws_access_key_id": os.environ.get("AWS_ACCESS_KEY_ID"),
+                "aws_secret_access_key": os.environ.get("AWS_SECRET_ACCESS_KEY"),
             })
-        # Check 2 & 3: Fall back to standard AWS credential chain
+            if os.environ.get("AWS_SESSION_TOKEN"):
+                client_kwargs["aws_session_token"] = os.environ.get("AWS_SESSION_TOKEN")
+        # Check 3 & 4: Fall back to standard AWS credential chain
         # boto3.client() will handle ~/.aws/credentials, IAM roles, etc. automatically
 
         client = boto3.client("bedrock-runtime", **client_kwargs)

@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Literal
 
 from ..chain.runner import run_chain_config
 from ..config.loader import load_config
+from ..config.models import InferenceProvider
 from ..observability.logging import get_logger, log_config_fingerprint
 from .types import RunResult
 import yaml as _yaml
@@ -106,9 +107,10 @@ class FMF:
         try:
             self._cfg = load_config(self._config_path)
             if self._cfg:
-                # Log configuration fingerprint
-                config_dict = self._cfg.model_dump() if hasattr(self._cfg, 'model_dump') else self._cfg
-                log_config_fingerprint(config_dict)
+                # Log configuration fingerprint (disabled by default - too verbose)
+                # config_dict = self._cfg.model_dump() if hasattr(self._cfg, 'model_dump') else self._cfg
+                # log_config_fingerprint(config_dict)
+                pass
         except Exception as e:
             self._logger.warning(f"Failed to load config from {self._config_path}: {e}")
             self._cfg = None
@@ -601,11 +603,13 @@ class FMF:
         raise ValueError(f"Unsupported or missing recipe type: {rtype!r}")
 
     # --- Fluent Builder API ---
-    def with_service(self, name: str) -> "FMF":
+    def with_service(self, name: InferenceProvider) -> "FMF":
         """Configure the inference service provider.
 
         Args:
-            name: Service name (e.g., "azure_openai", "aws_bedrock")
+            name: Service name. Available options:
+                - "azure_openai": Azure OpenAI service
+                - "aws_bedrock": AWS Bedrock service
 
         Returns:
             Self for method chaining
