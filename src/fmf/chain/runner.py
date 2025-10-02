@@ -661,11 +661,27 @@ def _execute_chain_steps(ctx: RuntimeContext, inputs: InputCollections) -> Execu
                     "provider": ctx.provider_name or "",
                 }
             ):
+                # Extract temperature and max_tokens from provider config if not in params
+                temperature = params.get("temperature")
+                max_tokens = params.get("max_tokens")
+
+                if temperature is None and ctx.provider_name == "aws_bedrock":
+                    # Get temperature from Bedrock provider config
+                    bedrock_cfg = getattr(ctx.inference_cfg, "aws_bedrock", None) if not isinstance(ctx.inference_cfg, dict) else ctx.inference_cfg.get("aws_bedrock")
+                    if bedrock_cfg:
+                        temperature = getattr(bedrock_cfg, "temperature", None) if not isinstance(bedrock_cfg, dict) else bedrock_cfg.get("temperature")
+
+                if max_tokens is None and ctx.provider_name == "aws_bedrock":
+                    # Get max_tokens from Bedrock provider config
+                    bedrock_cfg = getattr(ctx.inference_cfg, "aws_bedrock", None) if not isinstance(ctx.inference_cfg, dict) else ctx.inference_cfg.get("aws_bedrock")
+                    if bedrock_cfg:
+                        max_tokens = getattr(bedrock_cfg, "max_tokens", None) if not isinstance(bedrock_cfg, dict) else bedrock_cfg.get("max_tokens")
+
                 completion, telemetry = invoke_with_mode(
                     client,
                     messages,
-                    temperature=params.get("temperature"),
-                    max_tokens=params.get("max_tokens"),
+                    temperature=temperature,
+                    max_tokens=max_tokens,
                     mode=step_mode,
                     provider_name=ctx.provider_name,
                 )

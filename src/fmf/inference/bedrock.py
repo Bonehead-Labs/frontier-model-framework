@@ -31,8 +31,31 @@ class BedrockClient:
 
     def _default_transport(self, payload: dict) -> dict:  # pragma: no cover - requires network
         import boto3
+        import os
 
-        client = boto3.client("bedrock-runtime", region_name=self.region)
+        # Try to get credentials from multiple sources in order of preference:
+        # 1. Environment variables (from FMF auth system - highest priority for FMF users)
+        # 2. Standard AWS credentials file (~/.aws/credentials)
+        # 3. IAM roles (EC2, ECS, Lambda, etc.)
+
+        client_kwargs = {"region_name": self.region}
+
+        # Check 1: Environment variables (FMF auth system priority)
+        env_access_key = os.environ.get("AWS_ACCESS_KEY_ID")
+        env_secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
+        env_session_token = os.environ.get("AWS_SESSION_TOKEN")
+
+        if env_access_key and env_secret_key:
+            client_kwargs.update({
+                "aws_access_key_id": env_access_key,
+                "aws_secret_access_key": env_secret_key,
+                "aws_session_token": env_session_token  # Optional
+            })
+        # Check 2 & 3: Fall back to standard AWS credential chain
+        # boto3.client() will handle ~/.aws/credentials, IAM roles, etc. automatically
+
+        client = boto3.client("bedrock-runtime", **client_kwargs)
+
         body = json.dumps(payload)
         resp = client.invoke_model(modelId=self.model_id, body=body)
         data = resp.get("body")
