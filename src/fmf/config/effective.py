@@ -100,6 +100,9 @@ class EffectiveConfig(BaseModel):
             if key in result and isinstance(result[key], dict) and isinstance(value, dict):
                 # Recursively merge nested dictionaries
                 result[key] = EffectiveConfig._merge_dicts(result[key], value)
+            elif key == "connectors" and isinstance(value, list):
+                # Special case: append fluent connectors to existing connectors
+                result[key] = list(result.get(key, [])) + list(value)
             else:
                 # Override takes precedence
                 result[key] = value

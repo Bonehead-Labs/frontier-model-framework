@@ -8,28 +8,28 @@ from fmf.sdk import FMF
 
 def main() -> None:
     """Perfect example of images analysis using FMF fluent SDK."""
-    
+
     # Initialize FMF with configuration
     fmf = FMF.from_env("fmf.yaml")
-    
+
     # Configure using fluent API
     fmf = (fmf
            .with_service("azure_openai")
-           .with_rag(enabled=True, pipeline="images")
            .with_response("jsonl")
-           .with_source("local", root="./data"))
-    
+           .with_source("local", name="local_tmp_images", root="./sample/images", include=["*.{png,jpg,jpeg}"]))
+
     # Run images analysis
     result = fmf.images_analyse(
-        prompt="Describe the content and extract key visual elements from this image",
-        select=["data/*.png", "data/*.jpg", "data/*.jpeg"],
+        prompt="Describe this image in 15 words or less.",
+        select=["*.png", "*.jpg", "*.jpeg"],
+        group_size=1,
         return_records=True
     )
     
     # Display results
     print(f"Processed {result.records_processed} images")
     print(f"Output: {result.primary_output_path}")
-    
+
     # Show first result
     if result.data:
         print(f"Sample result: {result.data[0]}")

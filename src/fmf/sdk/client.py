@@ -152,7 +152,8 @@ class FMF:
                          prompt_length=len(prompt))
 
         filename = os.path.basename(input)
-        c = connector or self._auto_connector_name()
+        # Prefer an explicitly configured fluent source, then argument, then auto-detected
+        c = connector or self._source_connector or self._auto_connector_name()
         save_csv = save_csv or "artefacts/${run_id}/analysis.csv"
         save_jsonl = save_jsonl or "artefacts/${run_id}/analysis.jsonl"
 
@@ -308,9 +309,9 @@ class FMF:
         rag_options: Dict[str, Any] | None = None,
         mode: str | None = None,
     ) -> RunResult:
-        c = connector or self._auto_connector_name()
+        c = connector or self._source_connector or self._auto_connector_name()
         save_jsonl = save_jsonl or "artefacts/${run_id}/image_outputs.jsonl"
-        if group_size and group_size > 1:
+        if group_size:
             chain = _build_images_group_chain(
                 connector=c,
                 select=select,
@@ -819,10 +820,9 @@ class FMF:
             if 'connectors' not in fluent_overrides:
                 fluent_overrides['connectors'] = []
 
-            # Create connector config
+            # Create connector config - _source_kwargs already has 'type' from with_source
             new_connector = {
                 'name': self._source_connector,
-                'type': self._source_connector.split('_')[0],  # Extract type from name
                 **self._source_kwargs
             }
             fluent_overrides['connectors'].append(new_connector)

@@ -20,6 +20,12 @@ connectors:
     root: "./data"
     include: ["**/*.md", "**/*.txt", "**/*.csv", "**/*.{png,jpg,jpeg}"]
 
+  # Dedicated images connector for examples
+  - name: local_images
+    type: local
+    root: "./sample/images"
+    include: ["*.{png,jpg,jpeg}"]
+
   # AWS S3 bucket (read/write) for raw inputs or exports
   - name: s3_raw
     type: s3
@@ -60,7 +66,7 @@ inference:
   azure_openai:
     endpoint: "https://analyticsaitest.openai.azure.com/"
     api_version: "2024-02-15-preview"
-    deployment: "gpt-4.1-nano"
+    deployment: "gpt-4o"
     temperature: 0.2
     max_tokens: 256
 
