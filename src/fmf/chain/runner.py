@@ -384,8 +384,14 @@ def _prepare_environment(
         # Pass auth provider to build_llm_client so it can resolve AWS credentials from .env
         client = build_llm_client(inference_cfg, auth_provider=auth_provider)
 
+    # Build RAG pipelines only if at least one step in the chain declares a RAG block.
+    # This avoids validating unrelated RAG config when it is not used (e.g., DataFrame runs).
     rag_cfg = getattr(cfg, "rag", None) if not isinstance(cfg, dict) else cfg.get("rag")
-    rag_pipelines = build_rag_pipelines(rag_cfg, connectors=connectors_cfg, processing_cfg=processing_cfg)
+    rag_requested = any(getattr(s, "rag", None) for s in chain.steps)
+    if rag_requested and rag_cfg is not None:
+        rag_pipelines = build_rag_pipelines(rag_cfg, connectors=connectors_cfg, processing_cfg=processing_cfg)
+    else:
+        rag_pipelines = {}
     rag_records: Dict[str, List[dict]] = {name: [] for name in rag_pipelines}
 
     run_id = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -704,7 +710,7 @@ def _execute_chain_steps(ctx: RuntimeContext, inputs: InputCollections) -> Execu
                 metrics["tokens_completion"] += int(ct)
             return completion
 
-        if inputs.input_mode == "table_rows":
+        if inputs.input_mode in ("table_rows", "dataframe_rows"):
 
             def run_one_row(row_data: dict):
                 doc = None
@@ -1050,7 +1056,7 @@ def _finalize_run(
                 handle.write(json.dumps(record) + "\n")
 
     rows_file = None
-    if inputs.input_mode == "table_rows":
+    if inputs.input_mode in ("table_rows", "dataframe_rows"):
         rows_file = os.path.join(run_dir, "rows.jsonl")
         with open(rows_file, "w", encoding="utf-8") as handle:
             for row in inputs.rows:
