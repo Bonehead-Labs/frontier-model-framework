@@ -31,12 +31,11 @@ def main() -> None:
     
     # Initialize FMF with configuration
     fmf = FMF.from_env("fmf.yaml")
-    
+
     # Configure using fluent API
     fmf = (fmf
            .with_service("azure_openai")
-           .with_response("both")
-           .with_source("local", root="./data"))
+           .with_response("both"))
     
     # Run DataFrame analysis
     result = fmf.dataframe_analyse(
