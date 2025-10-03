@@ -1,0 +1,28 @@
+Sample Document Analysis
+
+This is a sample document for testing the FMF text analysis capabilities. The document contains several key topics that should be analyzed:
+
+1. Technology Trends
+   - Artificial Intelligence and Machine Learning
+   - Cloud Computing and Edge Computing
+   - Cybersecurity and Data Privacy
+
+2. Business Applications
+   - Digital Transformation
+   - Customer Experience Enhancement
+   - Operational Efficiency
+
+3. Future Outlook
+   - Emerging Technologies
+   - Market Opportunities
+   - Strategic Planning
+
+This document serves as a test case for the Frontier Model Framework's text analysis capabilities, demonstrating how structured information can be extracted from unstructured text content.
+
+Key metrics to consider:
+- Technology adoption rates
+- Market growth projections
+- Investment priorities
+- Risk assessment factors
+
+The analysis should identify the main themes, extract key points, and provide insights into the document's structure and content.

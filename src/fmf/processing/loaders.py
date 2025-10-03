@@ -22,6 +22,7 @@ CSV_EXTS = {".csv"}
 XLSX_EXTS = {".xlsx"}
 PARQUET_EXTS = {".parquet"}
 IMG_EXTS = {".png", ".jpg", ".jpeg"}
+PDF_EXTS = {".pdf"}
 
 
 def detect_type(filename: str) -> str:
@@ -38,6 +39,8 @@ def detect_type(filename: str) -> str:
         return "parquet"
     if ext in IMG_EXTS:
         return "image"
+    if ext in PDF_EXTS:
+        return "pdf"
     return "binary"
 
 
@@ -160,6 +163,36 @@ def load_document_from_bytes(
                 raise ProcessingError("OCR requires pytesseract and Pillow installed (.[ocr])") from e
         else:
             text_out = None
+    elif ptype == "pdf":
+        # Use LangChain PyPDFLoader for robust PDF parsing
+        try:
+            # Lazy import to avoid hard dependency
+            from langchain_community.document_loaders import PyPDFLoader  # type: ignore
+            import tempfile
+
+            # Write to a temporary file since PyPDFLoader expects a file path
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(data)
+                tmp.flush()
+                tmp_path = tmp.name
+            
+            try:
+                loader = PyPDFLoader(tmp_path)
+                docs = loader.load()
+            finally:
+                # Clean up temp file
+                import os as _os
+                try:
+                    _os.unlink(tmp_path)
+                except Exception:  # pragma: no cover
+                    pass
+            
+            joined = "\n\n".join([d.page_content.strip() for d in docs if getattr(d, "page_content", None)])
+            text_out = normalize_text(joined or "", normalize_whitespace=normalize_ws)
+        except Exception as e:  # pragma: no cover
+            raise ProcessingError(
+                "PDF support requires langchain-community+pypdf (ensure dependencies are installed)"
+            ) from e
     else:
         # Binary: store as blob metadata only
         blob = Blob(id="blob1", media_type="application/octet-stream", data=data, metadata={})
@@ -174,6 +207,7 @@ def load_document_from_bytes(
         "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "parquet": "application/x-parquet",
         "image": media_type if 'media_type' in locals() else "image/octet-stream",
+        "pdf": "application/pdf",
     }
     content_type = content_type_map.get(ptype, "application/octet-stream")
     doc_id = compute_document_id(

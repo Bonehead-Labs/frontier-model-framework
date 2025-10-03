@@ -18,7 +18,7 @@ connectors:
   - name: local_docs
     type: local
     root: "./data"
-    include: ["**/*.md", "**/*.txt", "**/*.csv", "**/*.{png,jpg,jpeg}"]
+    include: ["**/*.md", "**/*.txt", "**/*.csv", "**/*.pdf", "*.pdf", "**/*.{png,jpg,jpeg}"]
 
   # Dedicated images connector for examples
   - name: local_images
