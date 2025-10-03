@@ -354,6 +354,39 @@ def _prepare_environment(
         except Exception:
             # If auth provider build fails, continue without it
             pass
+
+    # Ensure AWS SDK (boto3) prefers credentials from .env over shared credentials file.
+    # If an auth provider is available (e.g., env with .env file), resolve AWS creds and
+    # export them to process environment so boto3's default chain picks them first.
+    try:
+        import os as _os  # local import to avoid polluting global namespace
+        if auth_provider:
+            try:
+                _aws_keys = auth_provider.resolve(["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"])  # type: ignore[attr-defined]
+                ak = _aws_keys.get("AWS_ACCESS_KEY_ID")
+                sk = _aws_keys.get("AWS_SECRET_ACCESS_KEY")
+                if ak and sk:
+                    _os.environ.setdefault("AWS_ACCESS_KEY_ID", ak)
+                    _os.environ.setdefault("AWS_SECRET_ACCESS_KEY", sk)
+            except Exception:
+                # optional; ignore if not present in provider
+                pass
+            try:
+                _tok = auth_provider.resolve(["AWS_SESSION_TOKEN"])  # type: ignore[attr-defined]
+                st = _tok.get("AWS_SESSION_TOKEN")
+                if st:
+                    _os.environ.setdefault("AWS_SESSION_TOKEN", st)
+            except Exception:
+                pass
+            # Set default region if available from provider-specific config (e.g., Bedrock)
+            if provider_name == "aws_bedrock":
+                subcfg = getattr(inference_cfg, "aws_bedrock", None) if not isinstance(inference_cfg, dict) else inference_cfg.get("aws_bedrock")
+                region = getattr(subcfg, "region", None) if not isinstance(subcfg, dict) else subcfg.get("region")
+                if region:
+                    _os.environ.setdefault("AWS_REGION", region)
+                    _os.environ.setdefault("AWS_DEFAULT_REGION", region)
+    except Exception:
+        pass
     
     # Resolve Azure API key if needed
     if auth_provider and provider_name == "azure_openai":

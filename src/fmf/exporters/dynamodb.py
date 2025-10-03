@@ -22,6 +22,13 @@ class DynamoDBExporter:
             import boto3  # type: ignore
         except Exception as e:
             raise ExportError("boto3 not installed. Install extras: pip install '.[aws]'") from e
+        # Respect env-provided region first (e.g., from .env via FMF auth)
+        if not self.region:
+            try:
+                import os as _os
+                self.region = _os.getenv("AWS_REGION") or _os.getenv("AWS_DEFAULT_REGION")
+            except Exception:
+                pass
         self._client = boto3.client("dynamodb", region_name=self.region)
         return self._client
 

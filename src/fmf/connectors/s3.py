@@ -74,6 +74,13 @@ class S3Connector(BaseConnector):
             import boto3  # type: ignore
         except Exception as e:  # pragma: no cover - import failure
             raise ConnectorError("boto3 not installed. Install extras: pip install '.[aws]'") from e
+        # Prefer region from environment if provided via .env/auth
+        if not self.region:
+            try:
+                import os as _os
+                self.region = _os.getenv("AWS_REGION") or _os.getenv("AWS_DEFAULT_REGION")
+            except Exception:
+                pass
         self._client = boto3.client("s3", region_name=self.region)
         return self._client
 

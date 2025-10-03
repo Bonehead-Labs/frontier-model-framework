@@ -80,7 +80,19 @@ class S3Exporter:
             import boto3  # type: ignore
         except Exception as e:
             raise ExportError("boto3 not installed. Install extras: pip install '.[aws]'") from e
-        self._client = boto3.client("s3")
+        # Prefer environment-overrides (.env via FMF auth) for credentials/region.
+        # If AWS_REGION/AWS_DEFAULT_REGION is not set but bucket region is known via config,
+        # boto3 will still detect region per-bucket, but we avoid surprises by passing region when available.
+        region = None
+        try:
+            import os as _os
+            region = _os.getenv("AWS_REGION") or _os.getenv("AWS_DEFAULT_REGION")
+        except Exception:
+            region = None
+        if region:
+            self._client = boto3.client("s3", region_name=region)
+        else:
+            self._client = boto3.client("s3")
         return self._client
 
     def _ext(self) -> str:
