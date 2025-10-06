@@ -30,6 +30,7 @@ class ChainConfig:
     outputs: Optional[List[Dict[str, Any]]] = None
     concurrency: int = 4
     continue_on_error: bool = True
+    system_prompt: Optional[str] = None
 
 
 def load_chain(path: str) -> ChainConfig:
@@ -72,6 +73,7 @@ def load_chain(path: str) -> ChainConfig:
     outputs = data.get("outputs")
     concurrency = int(data.get("concurrency", 4))
     continue_on_error = bool(data.get("continue_on_error", True))
+    system_prompt = data.get("system_prompt")
     return ChainConfig(
         name=name,
         inputs=inputs,
@@ -79,6 +81,7 @@ def load_chain(path: str) -> ChainConfig:
         outputs=outputs,
         concurrency=concurrency,
         continue_on_error=continue_on_error,
+        system_prompt=system_prompt,
     )
 
 

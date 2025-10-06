@@ -1,0 +1,6 @@
+prompts:
+- id: document_analyst_system
+  path: examples\document_analyst_system.yaml
+  versions:
+  - version: v1
+    content_hash: 300535605b69df9808ddd3ee7a26bb16d49c87a2558f827767153e95cb2b2d08

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PDF text analysis using FMF fluent SDK - perfect example."""
+"""PDF text analysis using FMF fluent SDK - perfect example with YAML prompts."""
 
 from __future__ import annotations
 
@@ -7,19 +7,21 @@ from fmf.sdk import FMF
 
 
 def main() -> None:
-    """Perfect example of PDF text analysis using FMF fluent SDK."""
+    """Perfect example of PDF text analysis using FMF fluent SDK with YAML prompts."""
     
     # Initialize FMF with configuration
     fmf = FMF.from_env("fmf.yaml")
     
-    # Configure using fluent API
+    # Configure using fluent API with custom system prompt from YAML
+    # Note: Paths are relative to the prompt_registry.path configured in fmf.yaml (./prompts)
     fmf = (fmf
            .with_service("azure_openai")
+           .with_system_prompt("examples/document_analyst_system.yaml#v1")
            .with_response("jsonl"))
     
-    # Run text analysis
+    # Run text analysis using YAML prompt file (v2 is simpler, v1 is more detailed)
     result = fmf.text_to_json(
-        prompt="Read this document and find the hidden code, it is a number and should stand out from the rest. Return the output in a simple JSON format with the code as the value of the 'code' key.",
+        prompt="examples/extract_code.yaml#v2",
         connector="local_docs",
         select=["*.pdf"],
         return_records=True

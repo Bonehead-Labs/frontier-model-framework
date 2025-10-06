@@ -130,6 +130,7 @@ class FMF:
         self._response_format: Optional[str] = None
         self._source_connector: Optional[str] = None
         self._source_kwargs: Dict[str, Any] = {}
+        self._system_prompt_override: Optional[str] = None
 
     @classmethod
     def from_env(cls, config_path: str | None = None) -> "FMF":
@@ -677,6 +678,23 @@ class FMF:
         self._response_format = kind
         return self
 
+    def with_system_prompt(self, prompt: str) -> "FMF":
+        """Configure a custom system prompt for LLM inference.
+
+        Args:
+            prompt: System prompt text (inline string) or path to YAML file (e.g., './prompts/system.yaml#v1')
+
+        Returns:
+            Self for method chaining
+
+        Example:
+            >>> fmf = FMF.from_env().with_system_prompt("You are an expert data analyst.")
+            >>> # Or use a YAML file:
+            >>> fmf = FMF.from_env().with_system_prompt("./prompts/expert_system.yaml#v1")
+        """
+        self._system_prompt_override = prompt
+        return self
+
     def with_source(self, connector: Literal["sharepoint", "s3", "local", "azure_blob"], **kwargs) -> "FMF":
         """Configure the data source connector.
 
@@ -891,6 +909,12 @@ class FMF:
                 **self._source_kwargs
             }
             fluent_overrides['connectors'].append(new_connector)
+
+        if self._system_prompt_override:
+            # Add system prompt override to inference config
+            if 'inference' not in fluent_overrides:
+                fluent_overrides['inference'] = {}
+            fluent_overrides['inference']['system_prompt'] = self._system_prompt_override
 
         # Create effective config
         return EffectiveConfig.from_base_and_overrides(

@@ -194,10 +194,16 @@ def _load_prompt_text(ref: str, *, registry) -> Tuple[str, Dict[str, str]]:
         ch = _hash.sha256(text.encode("utf-8")).hexdigest()
         return text, {"id": "inline", "version": "v0", "content_hash": ch}
     # If not inline, try registry via path#version or id#version
-    if os.path.exists(ref.split("#", 1)[0]):
+    # Check if it's a file path (relative to registry root or absolute)
+    path_part = ref.split("#", 1)[0]
+    registry_root = getattr(registry, "root", ".")
+    full_path = path_part if os.path.isabs(path_part) else os.path.join(registry_root, path_part)
+    
+    if os.path.exists(full_path):
         # Register file reference to ensure index awareness
         pv = registry.register(ref)
     else:
+        # Try to get by ID from index
         pv = registry.get(ref)
     return pv.template, {"id": pv.id, "version": pv.version, "content_hash": pv.content_hash}
 
@@ -257,6 +263,7 @@ class RuntimeContext:
     provider_name: str | None
     default_mode: InferenceMode
     env_mode_override: bool
+    system_prompt: str
 
 
 @dataclass
@@ -429,6 +436,31 @@ def _prepare_environment(
 
     run_id = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
+    # Extract and resolve system prompt
+    # Priority: chain config > inference config > default
+    system_prompt = "You are a helpful assistant."
+    
+    # Check chain-level system_prompt first
+    chain_system_prompt = getattr(chain, "system_prompt", None)
+    if chain_system_prompt:
+        system_prompt_ref = chain_system_prompt
+    else:
+        # Fall back to inference config system_prompt
+        system_prompt_ref = None
+        if inference_cfg:
+            system_prompt_ref = (
+                getattr(inference_cfg, "system_prompt", None)
+                if not isinstance(inference_cfg, dict)
+                else inference_cfg.get("system_prompt")
+            )
+    
+    # Resolve system prompt (supports inline strings and YAML file references)
+    if system_prompt_ref:
+        if isinstance(system_prompt_ref, str):
+            # Use existing _load_prompt_text to handle both inline and file references
+            resolved_text, _ = _load_prompt_text(system_prompt_ref, registry=registry)
+            system_prompt = resolved_text
+
     return RuntimeContext(
         cfg=cfg,
         chain=chain,
@@ -445,6 +477,7 @@ def _prepare_environment(
         provider_name=provider_name,
         default_mode=default_mode,
         env_mode_override=env_mode_override,
+        system_prompt=system_prompt,
     )
 
 
@@ -814,12 +847,12 @@ def _execute_chain_steps(ctx: RuntimeContext, inputs: InputCollections) -> Execu
                         if url:
                             parts.append({"type": "image_url", "url": url})
                     messages = [
-                        Message(role="system", content="You are a helpful assistant."),
+                        Message(role="system", content=ctx.system_prompt),
                         Message(role="user", content=parts),
                     ]
                 else:
                     messages = [
-                        Message(role="system", content="You are a helpful assistant."),
+                        Message(role="system", content=ctx.system_prompt),
                         Message(role="user", content=body),
                     ]
                 params = step.params or {}
@@ -880,7 +913,7 @@ def _execute_chain_steps(ctx: RuntimeContext, inputs: InputCollections) -> Execu
                     if url:
                         parts.append({"type": "image_url", "url": url})
                 messages = [
-                    Message(role="system", content="You are a helpful assistant."),
+                    Message(role="system", content=ctx.system_prompt),
                     Message(role="user", content=parts),
                 ]
                 params = step.params or {}
@@ -944,12 +977,12 @@ def _execute_chain_steps(ctx: RuntimeContext, inputs: InputCollections) -> Execu
                     if url:
                         parts.append({"type": "image_url", "url": url})
                 messages = [
-                    Message(role="system", content="You are a helpful assistant."),
+                    Message(role="system", content=ctx.system_prompt),
                     Message(role="user", content=parts),
                 ]
             else:
                 messages = [
-                    Message(role="system", content="You are a helpful assistant."),
+                    Message(role="system", content=ctx.system_prompt),
                     Message(role="user", content=body),
                 ]
             params = step.params or {}
@@ -1329,6 +1362,8 @@ def run_chain_config(
             "concurrency": conf.concurrency,
             "continue_on_error": conf.continue_on_error,
         }
+        if conf.system_prompt:
+            data["system_prompt"] = conf.system_prompt
         for s in conf.steps:
             out_val: Any = s.output
             if s.output_expects or s.output_schema or s.output_parse_retries:

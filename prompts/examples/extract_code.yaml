@@ -1,0 +1,36 @@
+id: extract_code
+versions:
+  - version: v1
+    template: |
+      Analyze the following document carefully and locate any hidden codes or special numbers.
+      
+      Instructions:
+      - Look for numbers that stand out from regular text
+      - Identify any codes, reference numbers, or special identifiers
+      - The code should be clearly distinguishable from normal content
+      
+      Return your findings in the following JSON format:
+      {
+        "code": "the extracted code or number",
+        "confidence": "high/medium/low",
+        "location": "brief description of where it was found"
+      }
+      
+      Document content:
+      {{ text }}
+    tests:
+      - name: contains-instructions
+        inputs: { text: "Sample document" }
+        assertions: { contains: ["JSON format", "Sample document"] }
+  
+  - version: v2
+    template: |
+      Read this document and find the hidden code. It is a number and should stand out from the rest.
+      Return the output in a simple JSON format with the code as the value of the 'code' key.
+      
+      Document:
+      {{ text }}
+    tests:
+      - name: simpler-version
+        inputs: { text: "Test" }
+        assertions: { contains: ["hidden code", "Test"] }
