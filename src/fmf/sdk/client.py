@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, Dict, List, Optional, Literal, TYPE_CHECKING
 
 from ..chain.runner import run_chain_config
 from ..config.loader import load_config
 from ..config.models import InferenceProvider
-from ..observability.logging import get_logger, log_config_fingerprint
+from ..observability.logging import get_logger
 from .types import RunResult
 import yaml as _yaml
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def _build_run_result(

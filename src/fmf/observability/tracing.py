@@ -8,7 +8,6 @@ from functools import wraps
 try:
     from opentelemetry import trace
     from opentelemetry.trace import Status, StatusCode
-    from opentelemetry.instrumentation.auto_instrumentation import sitecustomize
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
     from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter

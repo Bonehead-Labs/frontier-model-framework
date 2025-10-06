@@ -449,11 +449,11 @@ def version_callback(
         try:
             import importlib.metadata as importlib_metadata
         except Exception:  # pragma: no cover
-                import importlib_metadata  # type: ignore
+            import importlib_metadata  # type: ignore
 
-            try:
+        try:
             version_str = importlib_metadata.version("frontier-model-framework")
-            except importlib_metadata.PackageNotFoundError:
+        except importlib_metadata.PackageNotFoundError:
             version_str = "0.0.0+local"
         typer.echo(version_str)
         raise typer.Exit(0)

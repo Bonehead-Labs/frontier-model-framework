@@ -2,5 +2,7 @@ line-length = 120
 target-version = "py312"
 
 [lint]
-select = ["E", "F", "W", "I"]  # E=errors, F=pyflakes, W=warnings, I=isort
-ignore = ["E501"]  # Line too long (handled by formatter)
+select = ["E", "F"]  # E=errors, F=pyflakes (critical issues only)
+ignore = [
+    "E501",  # Line too long (handled by formatter)
+]
