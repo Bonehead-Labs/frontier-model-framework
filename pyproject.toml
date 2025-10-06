@@ -68,3 +68,8 @@ dev = [
 [tool.uv]
 allow-insecure-host = ["files.pythonhosted.org","pypi.org"]
 package = true
+
+[dependency-groups]
+dev = [
+    "ruff>=0.13.1",
+]

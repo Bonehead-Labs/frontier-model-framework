@@ -543,6 +543,11 @@ tracing = [
     { name = "opentelemetry-sdk" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "ruff" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "azure-identity", marker = "extra == 'azure'", specifier = ">=1.16,<2" },
@@ -574,6 +579,9 @@ requires-dist = [
     { name = "typer", specifier = ">=0.12,<1" },
 ]
 provides-extras = ["aws", "azure", "sharepoint", "ocr", "delta", "redshift", "excel", "parquet", "tracing", "dataframe", "examples", "test", "dev"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "ruff", specifier = ">=0.13.1" }]
 
 [[package]]
 name = "frozenlist"
