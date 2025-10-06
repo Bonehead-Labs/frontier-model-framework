@@ -13,6 +13,7 @@ import yaml as _yaml
 
 if TYPE_CHECKING:
     import pandas as pd
+    from ..config.effective import EffectiveConfig
 
 
 def _build_run_result(

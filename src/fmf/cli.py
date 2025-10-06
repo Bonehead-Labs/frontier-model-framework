@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import json
-import sys
-import warnings
 from pathlib import Path
-from typing import Any, List, Optional, Literal
+from typing import List, Optional, Literal
 
 import typer
 from typer import Option, Argument
@@ -13,20 +11,7 @@ from .sdk import FMF
 from .config.loader import load_config
 from .auth import build_provider, AuthError
 from .observability.logging import get_logger, set_verbose
-from .observability.tracing import get_tracer, enable_tracing
-from .connectors import build_connector
-from .processing.loaders import load_document_from_bytes
-from .processing.chunking import chunk_text
-from .processing.persist import persist_artefacts
-import datetime as _dt
-import os as _os
-import uuid as _uuid
-from .inference.unified import build_llm_client
-from .inference.base_client import Message
-from .inference.runtime import DEFAULT_MODE, invoke_with_mode, normalize_mode
-from .chain.runner import run_chain
-from .exporters import build_exporter
-from .core.errors import ConfigError, FmfError, ProviderError, get_exit_code
+from .observability.tracing import enable_tracing
 
 # Create Typer app
 app = typer.Typer(
@@ -384,7 +369,7 @@ def keys_test(
     json_output: bool = Option(False, "--json", help="Emit machine-readable JSON output"),
 ) -> None:
     """Test secret resolution (legacy command)."""
-    setup_logging()
+    set_verbose(False)
     cfg = load_config(config, set_overrides=set_overrides)
     auth_cfg = getattr(cfg, "auth", None)
     if auth_cfg is None and isinstance(cfg, dict):
