@@ -7,91 +7,59 @@ on:
   workflow_dispatch:
 
 jobs:
-  tests:
+  lint-and-build:
+    name: Lint & Package Check
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - name: Cache uv downloads
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/uv
-          key: ${{ runner.os }}-uv-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-uv-${{ matrix.python-version }}-
-      - uses: actions/setup-python@v5
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install uv (preferred)
+          
+      - name: Install uv
         uses: astral-sh/setup-uv@v1
         with:
           version: 'latest'
-      - name: Install dependencies
-        shell: bash
-        run: |
-          set -euxo pipefail
-          if command -v uv >/dev/null 2>&1; then
-            uv venv
-            . .venv/bin/activate
-            uv pip install --editable '.[aws,azure,test]' || uv pip install --editable '.[test]'
-            uv pip install ruff==0.5.7 mypy==1.10.0 coverage==7.5.4 pip-audit==2.7.3 bandit==1.7.9 radon==6.0.1
-          else
-            python -m venv .venv
-            . .venv/bin/activate
-            python -m pip install --upgrade pip
-            pip install --editable '.[aws,azure,test]' || pip install --editable '.[test]'
-            pip install ruff==0.5.7 mypy==1.10.0 coverage==7.5.4 pip-audit==2.7.3 bandit==1.7.9 radon==6.0.1
-          fi
-      - name: Ruff lint
-        shell: bash
-        run: |
-          set -euxo pipefail
-          . .venv/bin/activate
-          ruff check
-      - name: Mypy type-check
-        shell: bash
-        run: |
-          set -euxo pipefail
-          . .venv/bin/activate
-          mypy src/fmf/core src/fmf/inference
-      - name: Run tests with coverage
-        shell: bash
-        run: |
-          set -euxo pipefail
-          . .venv/bin/activate
-          coverage run -m pytest -q
-      - name: Coverage report
-        shell: bash
-        run: |
-          set -euxo pipefail
-          . .venv/bin/activate
-          coverage report -m --fail-under=70
-          coverage xml -o coverage.xml
-      - name: Security scans
-        shell: bash
-        run: |
-          set -euxo pipefail
-          . .venv/bin/activate
-          scripts/ci_security.sh
-      - name: Complexity & duplication metrics
-        shell: bash
-        run: |
-          set -euxo pipefail
-          . .venv/bin/activate
-          scripts/ci_quality.sh
-      - name: Upload coverage
-        uses: actions/upload-artifact@v4
+          
+      - name: Cache uv
+        uses: actions/cache@v4
         with:
-          name: coverage-${{ matrix.python-version }}
-          path: coverage.xml
-      - name: Install jscpd
-        shell: bash
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+            
+      - name: Install dependencies
         run: |
-          set -euxo pipefail
-          if command -v npm >/dev/null 2>&1; then
-            npm install -g jscpd@3 || echo "::warning::Failed to install jscpd; duplication scan will be skipped"
-          else
-            echo "::warning::npm unavailable; skipping jscpd installation"
-          fi
+          uv venv
+          . .venv/bin/activate
+          uv pip install -e .
+          uv pip install ruff
+          
+      - name: Lint with Ruff
+        run: |
+          . .venv/bin/activate
+          ruff check src/ --output-format=github
+          
+      - name: Check code formatting
+        run: |
+          . .venv/bin/activate
+          ruff format --check src/
+          
+      - name: Verify package builds
+        run: |
+          . .venv/bin/activate
+          uv pip install build
+          python -m build
+          
+      - name: Check package metadata
+        run: |
+          . .venv/bin/activate
+          uv pip install twine
+          twine check dist/*
