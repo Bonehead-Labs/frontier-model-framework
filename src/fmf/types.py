@@ -39,6 +39,11 @@ class Document:
     metadata: Dict[str, Any] = field(default_factory=dict)
     provenance: Dict[str, Any] = field(default_factory=dict)
 
+    def clear_content(self) -> None:
+        """Clear heavy content (text and blobs) to free memory while preserving metadata."""
+        self.text = None
+        self.blobs = None
+
     def to_serializable(self) -> Dict[str, Any]:
         return {
             "id": self.id,

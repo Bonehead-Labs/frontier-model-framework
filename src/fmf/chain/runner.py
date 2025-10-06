@@ -469,6 +469,21 @@ def _collect_inputs(ctx: RuntimeContext) -> InputCollections:
 
     selector = chain.inputs.get("select")
 
+    # Check if memory-safe mode is enabled (default: True)
+    memory_safe_mode = True
+    if processing_cfg is not None:
+        memory_cfg = (
+            getattr(processing_cfg, "memory", None)
+            if not isinstance(processing_cfg, dict)
+            else processing_cfg.get("memory")
+        )
+        if memory_cfg is not None:
+            memory_safe_mode = (
+                getattr(memory_cfg, "safe_mode", True)
+                if not isinstance(memory_cfg, dict)
+                else memory_cfg.get("safe_mode", True)
+            )
+
     tracer = get_tracer()
     with tracer.span("chain.inputs", {"connector": chain.inputs.get("connector"), "run_id": ctx.run_id}):
         image_docs: list[Document] = []
@@ -573,6 +588,18 @@ def _collect_inputs(ctx: RuntimeContext) -> InputCollections:
                             provenance={"index": 0, "splitter": "auto", "length_chars": 0},
                         )
                     )
+            
+            # Clear document content to free memory after processing
+            # Only clear text content for text-based documents (PDFs, etc.)
+            # Preserve blobs for potential multimodal processing
+            # Skip clearing entirely for images_group mode
+            if memory_safe_mode and collections.input_mode != "images_group":
+                # Clear text content after chunks are created (text is now in chunks)
+                if doc.text:
+                    doc.text = None
+                # Keep blobs for potential multimodal steps
+                # Clear the raw data bytes
+                del data
 
         if collections.input_mode == "images_group" and image_docs:
             imgs_cfg = (chain.inputs or {}).get("images", {}) if isinstance(chain.inputs, dict) else {}

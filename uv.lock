@@ -486,6 +486,7 @@ name = "frontier-model-framework"
 version = "0.3.0"
 source = { editable = "." }
 dependencies = [
+    { name = "boto3" },
     { name = "langchain-community" },
     { name = "pydantic" },
     { name = "pypdf" },
@@ -546,6 +547,7 @@ tracing = [
 requires-dist = [
     { name = "azure-identity", marker = "extra == 'azure'", specifier = ">=1.16,<2" },
     { name = "azure-keyvault-secrets", marker = "extra == 'azure'", specifier = ">=4.8,<5" },
+    { name = "boto3", specifier = ">=1.34,<2" },
     { name = "boto3", marker = "extra == 'aws'", specifier = ">=1.34,<2" },
     { name = "deltalake", marker = "extra == 'delta'", specifier = ">=0.17,<0.21" },
     { name = "langchain-community", specifier = ">=0.2.10,<0.4" },

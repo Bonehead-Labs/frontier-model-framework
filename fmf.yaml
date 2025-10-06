@@ -29,9 +29,9 @@ connectors:
   # AWS S3 bucket (read/write) for raw inputs or exports
   - name: s3_raw
     type: s3
-    bucket: "<your-input-bucket>"
-    prefix: "raw/"
-    region: "<aws-region>"
+    bucket: "gn-sandbox-bucket"
+    prefix: "fmf-test"
+    region: "ap-southeast-2"
     kms_required: false
 
   # SharePoint document library via Microsoft Graph
@@ -43,6 +43,12 @@ connectors:
     auth_profile: "default"
 
 processing:
+  memory:
+    # Memory-safe mode: Clear document text content after chunks are created
+    # This significantly reduces memory usage for large datasets (e.g., 1000s of PDFs)
+    # Text content is preserved in chunks; blobs are kept for multimodal processing
+    # Set to false if you need full document retention for custom processing
+    safe_mode: true
   text:
     chunking:
       strategy: recursive

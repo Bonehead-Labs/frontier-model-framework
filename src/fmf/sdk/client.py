@@ -111,6 +111,10 @@ class FMF:
                 # config_dict = self._cfg.model_dump() if hasattr(self._cfg, 'model_dump') else self._cfg
                 # log_config_fingerprint(config_dict)
                 pass
+                
+                # Load AWS credentials from .env into os.environ early for boto3
+                # This ensures S3 connector and other AWS services can access credentials
+                self._load_aws_credentials_early()
         except Exception as e:
             self._logger.warning(f"Failed to load config from {self._config_path}: {e}")
             self._cfg = None
@@ -790,6 +794,59 @@ class FMF:
                 return getattr(c, "name", None) if not isinstance(c, dict) else c.get("name")
         name = getattr(connectors[0], "name", None) if not isinstance(connectors[0], dict) else connectors[0].get("name")
         return name or "local_docs"
+
+    def _load_aws_credentials_early(self) -> None:
+        """Load AWS credentials from .env into os.environ early for boto3.
+        
+        This ensures S3 connector and other AWS services can access credentials
+        before chain execution. Mirrors the logic in _prepare_environment.
+        """
+        try:
+            from ..auth import build_auth_provider
+            
+            auth_cfg = getattr(self._cfg, "auth", None) if not isinstance(self._cfg, dict) else self._cfg.get("auth")
+            if not auth_cfg:
+                return
+                
+            try:
+                auth_provider = build_auth_provider(auth_cfg)
+            except Exception:
+                return
+                
+            if not auth_provider:
+                return
+                
+            # Load AWS credentials into os.environ
+            try:
+                _aws_keys = auth_provider.resolve(["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"])
+                ak = _aws_keys.get("AWS_ACCESS_KEY_ID")
+                sk = _aws_keys.get("AWS_SECRET_ACCESS_KEY")
+                if ak and sk:
+                    os.environ.setdefault("AWS_ACCESS_KEY_ID", ak)
+                    os.environ.setdefault("AWS_SECRET_ACCESS_KEY", sk)
+            except Exception:
+                pass
+                
+            try:
+                _tok = auth_provider.resolve(["AWS_SESSION_TOKEN"])
+                st = _tok.get("AWS_SESSION_TOKEN")
+                if st:
+                    os.environ.setdefault("AWS_SESSION_TOKEN", st)
+            except Exception:
+                pass
+                
+            # Load AWS region if configured
+            try:
+                _region = auth_provider.resolve(["AWS_REGION"])
+                region = _region.get("AWS_REGION")
+                if region:
+                    os.environ.setdefault("AWS_REGION", region)
+                    os.environ.setdefault("AWS_DEFAULT_REGION", region)
+            except Exception:
+                pass
+        except Exception:
+            # Silently fail - credentials may be available from other sources
+            pass
 
     def _get_effective_config(self) -> "EffectiveConfig":
         """Get the effective configuration merging fluent overrides with base config."""
