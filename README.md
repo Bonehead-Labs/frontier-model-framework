@@ -18,77 +18,115 @@ F::::::::FF              M::::::M               M::::::M   F::::::::FF
 FFFFFFFFFFF              MMMMMMMM               MMMMMMMM   FFFFFFFFFFF           
 ```                                                                          
 
-FMF is a pluggable, provider-agnostic framework for building LLM-powered data workflows across Azure OpenAI, AWS Bedrock, and more. It provides unified configuration, connectors, processing, inference adapters, prompt versioning, exports, and a simple CLI for running pipelines end-to-end.
+FMF is a pluggable, provider-agnostic framework for building LLM-powered data workflows across Azure OpenAI, AWS Bedrock, and more. It provides unified configuration, connectors (local, S3, SharePoint), processing pipelines, inference adapters, and a fluent Python SDK for rapid development.
 
-## Install
+## Quick Install
 
 ```bash
-# Install with uv (recommended)
-uv venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-uv sync -E aws -E azure
+# Clone the repository
+git clone <repository-url>
+cd frontier-model-framework
 
-# Or with pip
-pip install -e .[aws,azure]
+# Install with uv (recommended - handles venv creation automatically)
+uv sync
+
+# Or install with specific extras
+uv sync --extra aws              # AWS support (S3, Bedrock)
+uv sync --extra azure            # Azure support (Azure OpenAI)
+uv sync --extra aws --extra azure  # Both providers
+
+# For development
+uv sync --extra aws --extra azure --extra dev --extra test
 ```
 
+**Note**: `uv sync` automatically creates a virtual environment in `.venv/` and installs all dependencies from `pyproject.toml` and `uv.lock`.
+
 ## SDK Quickstart
+
+### Basic CSV Analysis
 
 ```python
 from fmf.sdk import FMF
 
-# Simple analysis with rich results
+# Initialize and run CSV analysis
 fmf = FMF.from_env("fmf.yaml")
 result = fmf.csv_analyse(
-    input="./data/comments.csv", 
-    text_col="Comment", 
-    id_col="ID", 
-    prompt="Summarise this comment"
+    input="data/sample.csv",
+    text_col="Comment",
+    id_col="ID",
+    prompt="Analyze sentiment and extract key themes from this comment",
+    return_records=True,
+    connector="local_docs"
 )
 
-print(f"Processed {result.records_processed} records in {result.duration_ms:.1f}ms")
-print(f"Output saved to: {result.primary_output_path}")
+print(f"Processed {result.records_processed} records")
+print(f"Output: {result.primary_output_path}")
+```
 
-# Fluent API with ergonomics
+### Using Fluent API with AWS Bedrock
+
+```python
+from fmf.sdk import FMF
+
+# Configure using fluent API
 fmf = (FMF.from_env("fmf.yaml")
-       .with_service("azure_openai")
-       .with_rag(enabled=True, pipeline="documents")
-       .with_response("csv")
-       .with_source("local", root="./data"))
+       .with_service("aws_bedrock")
+       .with_response("both"))
 
-# Context manager for resource cleanup
-with fmf as f:
-    result = f.csv_analyse(
-        input="./data/comments.csv", 
-        text_col="Comment", 
-        id_col="ID", 
-        prompt="Analyze sentiment"
-    )
-    print(f"Success: {result.success}, Records: {result.records_processed}")
-
-# DataFrame analysis (requires pandas)
-import pandas as pd
-df = pd.read_csv("./data/comments.csv")
-result = fmf.dataframe_analyse(
-    df=df,
-    text_col="Comment", 
-    id_col="ID", 
-    prompt="Analyze sentiment and extract themes"
+result = fmf.csv_analyse(
+    input="data/sample.csv",
+    text_col="Comment",
+    id_col="ID",
+    prompt="Analyze sentiment and extract key themes",
+    return_records=True,
+    connector="local_docs",
+    mode="regular"
 )
-print(f"DataFrame processed: {result.records_processed} records")
+
+print(f"Processed {result.records_processed} records")
+if result.data:
+    print(f"Sample result: {result.data[0]}")
+```
+
+### Reading from S3
+
+```python
+from fmf.sdk import FMF
+
+# AWS credentials are automatically loaded from .env
+fmf = (FMF.from_env("fmf.yaml")
+       .with_service("aws_bedrock")
+       .with_response("both"))
+
+# Analyze CSV files from S3
+result = fmf.csv_analyse(
+    input="*.csv",  # Pattern to match CSV files
+    text_col="Comment",
+    id_col="ID",
+    prompt="Analyze sentiment and extract key themes",
+    return_records=True,
+    connector="s3_raw",  # S3 connector from fmf.yaml
+    mode="regular"
+)
+
+print(f"Processed {result.records_processed} records from S3")
+print(f"Output: {result.primary_output_path}")
 ```
 
 ## CLI Quickstart
 
 ```bash
-# CSV analysis
-fmf csv analyse --input ./data/comments.csv --text-col Comment --id-col ID --prompt "Summarise"
+# CSV analysis with local files
+fmf csv data/sample.csv Comment ID "Analyze sentiment and extract key themes"
+
+# With service override
+fmf csv data/sample.csv Comment ID "Analyze sentiment" --service aws_bedrock
 
 # Text processing
-fmf text --input ./data/documents.md --prompt "Extract key information"
+fmf text data/*.md "Extract key information"
 
-# With RAG enabled
-fmf csv analyse --input ./data/comments.csv --text-col Comment --id-col ID --prompt "Analyze" --rag
+# Image analysis
+fmf images sample/images/*.jpg "Describe this image"
 ```
 
 ## Configuration
@@ -116,11 +154,63 @@ fmf = (FMF.from_env("fmf.yaml")
 
 ## Examples
 
-- **CSV Analysis**: `examples/analyse_csv.py` - [Usage Guide](docs/usage/csv_analyse.md)
-- **DataFrame Analysis**: `examples/dataframe_analyse.py` - [Usage Guide](docs/usage/dataframe_analyse.md)
-- **Text Processing**: `examples/text_to_json.py` - [Usage Guide](docs/usage/text_to_json.md)
-- **Image Analysis**: `examples/images_analyse.py` - [Usage Guide](docs/usage/images_analyse.md)
-- **SDK Demo**: `examples/sdk_demo.py` - Comprehensive SDK examples
+All examples are in the `examples/` directory and can be run with:
+
+```bash
+uv run examples/<example_name>.py
+```
+
+### Available Examples
+
+- **`analyse_csv_bedrock.py`** - CSV analysis using AWS Bedrock with local files
+- **`analyse_csv_s3_bedrock.py`** - CSV analysis reading from S3 bucket  
+- **`dataframe_analyse.py`** - Direct pandas DataFrame analysis
+- **`images_analyse.py`** - Image analysis with multimodal models
+- **`text_analysis.py`** - Text file processing
+
+### Example: CSV Analysis with Bedrock
+
+```python
+# examples/analyse_csv_bedrock.py
+from fmf.sdk import FMF
+
+fmf = (FMF.from_env("fmf.yaml")
+       .with_service("aws_bedrock")
+       .with_response("both"))
+
+result = fmf.csv_analyse(
+    input="data/sample.csv",
+    text_col="Comment",
+    id_col="ID",
+    prompt="Analyze sentiment and extract key themes",
+    return_records=True,
+    connector="local_docs"
+)
+
+print(f"Processed {result.records_processed} records")
+```
+
+### Example: S3 Integration
+
+```python
+# examples/analyse_csv_s3_bedrock.py  
+from fmf.sdk import FMF
+
+# Credentials loaded automatically from .env
+fmf = (FMF.from_env("fmf.yaml")
+       .with_service("aws_bedrock")
+       .with_response("both"))
+
+result = fmf.csv_analyse(
+    input="*.csv",
+    text_col="Comment",
+    id_col="ID",
+    prompt="Analyze sentiment",
+    connector="s3_raw"  # Configured in fmf.yaml
+)
+
+print(f"Processed {result.records_processed} records from S3")
+```
 
 ## Features
 
@@ -136,14 +226,43 @@ fmf = (FMF.from_env("fmf.yaml")
 ## Development
 
 ```bash
-# Install dev dependencies
-uv sync -E aws -E azure -E excel -E redshift -E delta
+# Install all dev dependencies
+uv sync --extra aws --extra azure --extra dev --extra test
 
-# Run tests
-uv run python -m unittest discover -s tests -p "test_*.py" -v
+# Run linting
+uv run ruff check src/
+
+# Auto-format code
+uv run ruff format src/
+
+# Run tests (if available)
+uv run pytest tests/
 
 # Run CLI
 uv run fmf --help
+
+# Run examples
+uv run examples/analyse_csv_bedrock.py
+```
+
+## Project Structure
+
+```
+frontier-model-framework/
+├── src/fmf/              # Main package
+│   ├── sdk/              # Fluent SDK API
+│   ├── connectors/       # Data connectors (local, S3, SharePoint)
+│   ├── inference/        # LLM clients (Azure OpenAI, Bedrock)
+│   ├── processing/       # Document loaders and processors
+│   ├── chain/            # Chain execution engine
+│   ├── auth/             # Authentication providers
+│   ├── exporters/        # Output exporters
+│   └── cli.py            # Command-line interface
+├── examples/             # Working examples
+├── tests/                # Test suite
+├── fmf.yaml              # Main configuration file
+├── ruff.toml             # Linting configuration
+└── pyproject.toml        # Package metadata
 ```
 
 ## Architecture
