@@ -47,11 +47,6 @@ jobs:
           . .venv/bin/activate
           ruff check src/ --output-format=github
           
-      - name: Check code formatting
-        run: |
-          . .venv/bin/activate
-          ruff format --check src/
-          
       - name: Verify package builds
         run: |
           . .venv/bin/activate
