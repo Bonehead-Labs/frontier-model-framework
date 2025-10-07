@@ -269,6 +269,18 @@ frontier-model-framework/
 
 See `docs/adr/ADR-001-sdk-first.md` for the architectural decision record and design principles.
 
+## Fork this Repo
+
+To maintain a customized version for your organization while syncing with upstream patches:
+
+1. Fork the repository on GitHub to your org's account.
+2. Clone your fork locally: `git clone https://github.com/your-org/frontier-model-framework.git`
+3. Add upstream remote: `git remote add upstream https://github.com/boneheadlabs/frontier-model-framework.git`
+4. Sync updates: `git fetch upstream && git merge upstream/main` (resolve any merge conflicts).
+5. Develop custom changes on branches, commit, and push to your fork.
+
+This keeps your version independent while pulling in latest changes from the original.
+
 ## Contributing
 
 - Please read `AGENTS.md` for architecture, extension points, and coding conventions
