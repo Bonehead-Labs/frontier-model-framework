@@ -155,6 +155,7 @@ class FMF:
         connector: str | None = None,
         rag_options: Dict[str, Any] | None = None,
         mode: str | None = None,
+        export_to: str | None = None,
     ) -> RunResult:
         self._logger.info("Starting CSV analysis",
                          input_file=input,
@@ -204,6 +205,20 @@ class FMF:
         if text_col not in pass_through_cols:
             pass_through_cols.append(text_col)
 
+        # Build outputs list
+        outputs = [
+            {"save": save_jsonl, "from": "analysed", "as": "jsonl"},
+            {"save": save_csv, "from": "analysed", "as": "csv"},
+        ]
+        
+        # Add export output if specified
+        if export_to:
+            outputs.append({
+                "export": export_to,
+                "from": "analysed",
+                "as": "csv"
+            })
+        
         chain = {
             "name": "csv-analyse",
             "inputs": {
@@ -213,10 +228,7 @@ class FMF:
                 "table": {"text_column": text_col, "pass_through": pass_through_cols},
             },
             "steps": [step],
-            "outputs": [
-                {"save": save_jsonl, "from": "analysed", "as": "jsonl"},
-                {"save": save_csv, "from": "analysed", "as": "csv"},
-            ],
+            "outputs": outputs,
             "concurrency": 4,
             "continue_on_error": False,
         }
@@ -886,17 +898,9 @@ class FMF:
         if self._rag_override:
             fluent_overrides['rag'] = self._rag_override
 
-        if self._response_format:
-            if 'export' not in fluent_overrides:
-                fluent_overrides['export'] = {}
-            if 'sinks' not in fluent_overrides['export']:
-                fluent_overrides['export']['sinks'] = []
-            # Add response format to export sinks
-            fluent_overrides['export']['sinks'].append({
-                'name': 'fluent_response',
-                'type': 's3',  # Default type
-                'format': self._response_format
-            })
+        # Note: We don't add fluent response format to export sinks anymore
+        # The response format only affects local save paths (save_csv, save_jsonl)
+        # Export sinks should be explicitly configured via export_to parameter
 
         if self._source_connector:
             # Add or update connector configuration

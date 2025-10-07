@@ -182,6 +182,7 @@ class S3Sink(BaseModel):
     type: Literal["s3"]
     bucket: str
     prefix: Optional[str] = None
+    region: Optional[str] = None
     format: Literal["jsonl", "parquet", "csv", "delta"] | None = None
     compression: Literal["none", "gzip", "snappy"] | None = None
     partition_by: List[str] | None = None

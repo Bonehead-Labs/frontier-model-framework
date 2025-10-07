@@ -1277,7 +1277,10 @@ def _finalize_run(
             try:
                 exporter.write(payload, context={"run_id": ctx.run_id})
                 exporter.finalize()
-            except Exception:
+            except Exception as e:
+                # Log export errors but don't fail the run unless continue_on_error is False
+                import sys
+                print(f"ERROR: Failed to export to sink '{sink_name}': {e}", file=sys.stderr)
                 if not ctx.chain.continue_on_error:
                     raise
 

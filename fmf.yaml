@@ -92,6 +92,15 @@ export:
       region: "<aws-region>"
       format: jsonl
       compression: gzip
+    
+    - name: s3_csv_output
+      type: s3
+      bucket: "gn-sandbox-bucket"
+      prefix: "outputs/"
+      region: "ap-southeast-2"
+      format: csv
+      compression: none
+      mode: append
 
     - name: sharepoint_excel
       type: sharepoint_excel
