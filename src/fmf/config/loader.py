@@ -21,12 +21,62 @@ def _parse_scalar(value: str) -> Any:
 
 
 def _set_by_path(data: dict, path: list[str], value: Any) -> None:
-    cur = data
-    for key in path[:-1]:
-        if key not in cur or not isinstance(cur[key], dict):
-            cur[key] = {}
+    """Set a nested value in a dict using a path, supporting list indices.
+
+    Path segments that are numeric (e.g., "0") are treated as list indices for
+    the next container. This allows env overrides like FMF_CONNECTORS__0__NAME
+    to correctly create a list under "connectors" instead of a dict with a
+    string key "0".
+    """
+    cur: Any = data
+    for i, key in enumerate(path[:-1]):
+        next_key = path[i + 1] if i + 1 < len(path) else None
+        next_is_index = isinstance(next_key, str) and next_key.isdigit()
+
+        # If current container is a list, interpret key as list index
+        if isinstance(cur, list):
+            if not key.isdigit():
+                # Invalid structure; convert list to dict to proceed safely
+                # (should not typically happen for our env overrides)
+                tmp = {}
+                for idx, item in enumerate(cur):
+                    tmp[str(idx)] = item
+                cur.clear()
+                cur = tmp
+            else:
+                idx = int(key)
+                while len(cur) <= idx:
+                    cur.append({})
+                if cur[idx] is None:
+                    cur[idx] = {}
+                cur = cur[idx]
+                continue
+
+        # Current is a dict; decide whether to create a list or dict at key
+        if key not in cur:
+            cur[key] = [] if next_is_index else {}
+        else:
+            # Coerce to list/dict based on next segment type
+            if next_is_index and not isinstance(cur[key], list):
+                cur[key] = []
+            if not next_is_index and not isinstance(cur[key], dict):
+                cur[key] = {}
         cur = cur[key]
-    cur[path[-1]] = value
+
+    # Set the leaf value
+    leaf = path[-1]
+    if isinstance(cur, list) and isinstance(leaf, str) and leaf.isdigit():
+        idx = int(leaf)
+        while len(cur) <= idx:
+            cur.append(None)
+        cur[idx] = value
+    elif isinstance(cur, dict):
+        cur[leaf] = value
+    else:
+        # Fallback: if structure is unexpected, convert to dict
+        # and set the value
+        tmp = {str(leaf): value}
+        cur = tmp
 
 
 def _apply_env_overrides(cfg: dict, env: Mapping[str, str]) -> None:

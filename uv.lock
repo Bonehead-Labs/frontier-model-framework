@@ -488,6 +488,7 @@ source = { editable = "." }
 dependencies = [
     { name = "boto3" },
     { name = "langchain-community" },
+    { name = "pandas" },
     { name = "pydantic" },
     { name = "pypdf" },
     { name = "pyyaml" },
@@ -564,6 +565,7 @@ requires-dist = [
     { name = "opentelemetry-exporter-otlp", marker = "extra == 'tracing'", specifier = ">=1.20,<2" },
     { name = "opentelemetry-instrumentation", marker = "extra == 'tracing'", specifier = ">=0.40,<1" },
     { name = "opentelemetry-sdk", marker = "extra == 'tracing'", specifier = ">=1.20,<2" },
+    { name = "pandas", specifier = ">=2.3.2" },
     { name = "pandas", marker = "extra == 'dataframe'", specifier = ">=2.0,<3" },
     { name = "pandas", marker = "extra == 'examples'", specifier = ">=2.0,<3" },
     { name = "pyarrow", marker = "extra == 'parquet'", specifier = ">=14,<17" },

@@ -8,6 +8,10 @@ from .providers import (
     AwsSecretsProvider,
     build_provider,
 )
+from .bootstrap import (
+    bootstrap_aws_credentials,
+    resolve_aws_credentials_from_provider,
+)
 
 __all__ = [
     "AuthError",
@@ -16,4 +20,6 @@ __all__ = [
     "AzureKeyVaultProvider",
     "AwsSecretsProvider",
     "build_provider",
+    "bootstrap_aws_credentials",
+    "resolve_aws_credentials_from_provider",
 ]

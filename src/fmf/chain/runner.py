@@ -350,53 +350,44 @@ def _prepare_environment(
     preg_cfg = getattr(cfg, "prompt_registry", None) if not isinstance(cfg, dict) else cfg.get("prompt_registry")
     registry = build_prompt_registry(preg_cfg)
     
-    # Build auth provider for all providers (needed for AWS credentials and Azure API keys)
+    # Bootstrap credentials: Load AWS credentials from .env before building auth provider
+    # Design: .env (bootstrap) → AWS Secrets Manager (application secrets)
+    # This allows aws_secrets provider to access AWS Secrets Manager using credentials from .env
     auth_cfg = getattr(cfg, "auth", None) if not isinstance(cfg, dict) else cfg.get("auth")
     auth_provider = None
     api_key = None
-    
+
     if auth_cfg:
+        # Phase 1: Bootstrap - Load AWS credentials from .env for accessing secret stores
+        from ..auth import bootstrap_aws_credentials
+        bootstrap_aws_credentials(auth_cfg)
+        
+        # Phase 2: Build auth provider - Can now access AWS Secrets Manager if needed
         try:
             auth_provider = build_auth_provider(auth_cfg)
         except Exception:
             # If auth provider build fails, continue without it
             pass
-
-    # Ensure AWS SDK (boto3) prefers credentials from .env over shared credentials file.
-    # If an auth provider is available (e.g., env with .env file), resolve AWS creds and
-    # export them to process environment so boto3's default chain picks them first.
-    try:
-        import os as _os  # local import to avoid polluting global namespace
+        
+        # Phase 3: Resolve additional AWS credentials from auth provider if available
+        # This handles cases where auth provider itself provides AWS credentials
         if auth_provider:
-            try:
-                _aws_keys = auth_provider.resolve(["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"])  # type: ignore[attr-defined]
-                ak = _aws_keys.get("AWS_ACCESS_KEY_ID")
-                sk = _aws_keys.get("AWS_SECRET_ACCESS_KEY")
-                if ak and sk:
-                    _os.environ.setdefault("AWS_ACCESS_KEY_ID", ak)
-                    _os.environ.setdefault("AWS_SECRET_ACCESS_KEY", sk)
-            except Exception:
-                # optional; ignore if not present in provider
-                pass
-            try:
-                _tok = auth_provider.resolve(["AWS_SESSION_TOKEN"])  # type: ignore[attr-defined]
-                st = _tok.get("AWS_SESSION_TOKEN")
-                if st:
-                    _os.environ.setdefault("AWS_SESSION_TOKEN", st)
-            except Exception:
-                pass
+            from ..auth import resolve_aws_credentials_from_provider
+            resolve_aws_credentials_from_provider(auth_provider)
+            
             # Set default region if available from provider-specific config (e.g., Bedrock)
             if provider_name == "aws_bedrock":
+                import os as _os
                 subcfg = getattr(inference_cfg, "aws_bedrock", None) if not isinstance(inference_cfg, dict) else inference_cfg.get("aws_bedrock")
                 region = getattr(subcfg, "region", None) if not isinstance(subcfg, dict) else subcfg.get("region")
                 if region:
                     _os.environ.setdefault("AWS_REGION", region)
                     _os.environ.setdefault("AWS_DEFAULT_REGION", region)
-    except Exception:
-        pass
     
-    # Resolve Azure API key if needed
+    # Resolve Azure API key if needed (Phase 4: Application secrets)
     if auth_provider and provider_name == "azure_openai":
+        import logging
+        _log = logging.getLogger(__name__)
         try:
             # Try each possible API key name individually (resolve() fails if ANY key is missing)
             for key_name in ["AZURE_OPENAI_API_KEY", "OPENAI_API_KEY"]:
@@ -404,11 +395,17 @@ def _prepare_environment(
                     secrets = auth_provider.resolve([key_name])
                     api_key = secrets.get(key_name)
                     if api_key:
+                        _log.info(f"Resolved Azure OpenAI API key from auth provider: {key_name}")
                         break
-                except Exception:
+                except Exception as e:
+                    _log.debug(f"Could not resolve {key_name} from auth provider: {e}")
                     continue
-        except Exception:
+            
+            if not api_key:
+                _log.warning("Azure OpenAI API key not found in auth provider, will fall back to environment variables")
+        except Exception as e:
             # If resolution fails, fall back to environment variables
+            _log.debug(f"Azure API key resolution failed, falling back to environment: {e}")
             pass
     
     # Build LLM client with API key if available

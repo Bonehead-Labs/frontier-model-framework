@@ -116,9 +116,10 @@ class FMF:
                 # log_config_fingerprint(config_dict)
                 pass
                 
-                # Load AWS credentials from .env into os.environ early for boto3
-                # This ensures S3 connector and other AWS services can access credentials
-                self._load_aws_credentials_early()
+                # Bootstrap: Load AWS credentials from .env into os.environ early
+                # This ensures boto3 can access AWS Secrets Manager and other AWS services
+                # Design: .env (bootstrap) → AWS Secrets Manager (application secrets)
+                self._bootstrap_credentials()
         except Exception as e:
             self._logger.warning(f"Failed to load config from {self._config_path}: {e}")
             self._cfg = None
@@ -131,6 +132,7 @@ class FMF:
         self._source_connector: Optional[str] = None
         self._source_kwargs: Dict[str, Any] = {}
         self._system_prompt_override: Optional[str] = None
+        self._secrets_provider_override: Optional[str] = None
 
     @classmethod
     def from_env(cls, config_path: str | None = None) -> "FMF":
@@ -707,6 +709,53 @@ class FMF:
         self._system_prompt_override = prompt
         return self
 
+    def with_secrets_provider(self, provider: Literal["env", "aws", "azure"]) -> "FMF":
+        """Override which secrets provider to use for retrieving application secrets.
+        
+        This selects where application secrets (API keys, tokens) are retrieved from:
+        - "env": Read from environment variables and .env file
+        - "aws": Read from AWS Secrets Manager
+        - "azure": Read from Azure Key Vault
+        
+        Note: AWS authentication (for connecting to Secrets Manager) is handled 
+        separately via .env or IAM role, depending on the environment.
+        
+        The selected provider must be configured in fmf.yaml.
+        
+        Args:
+            provider: Secrets provider to use
+                     - "env": Environment variables and .env file
+                     - "aws": AWS Secrets Manager
+                     - "azure": Azure Key Vault
+        
+        Returns:
+            Self for method chaining
+            
+        Example:
+            >>> # Development: Use .env for secrets
+            >>> fmf = FMF.from_env("fmf.yaml").with_secrets_provider("env")
+            
+            >>> # Production: Use AWS Secrets Manager
+            >>> fmf = FMF.from_env("fmf.yaml").with_secrets_provider("aws")
+            
+            >>> # Environment-based selection
+            >>> import os
+            >>> provider = "aws" if os.getenv("ENV") == "prod" else "env"
+            >>> fmf = FMF.from_env("fmf.yaml").with_secrets_provider(provider)
+        """
+        # Map simplified names to YAML provider names
+        provider_mapping = {
+            "env": "env",
+            "aws": "aws_secrets",
+            "azure": "azure_key_vault"
+        }
+        
+        if provider not in provider_mapping:
+            raise ValueError(f"Invalid secrets provider: {provider}. Must be one of: env, aws, azure")
+        
+        self._secrets_provider_override = provider_mapping[provider]
+        return self
+
     def with_source(self, connector: Literal["sharepoint", "s3", "local", "azure_blob"], **kwargs) -> "FMF":
         """Configure the data source connector.
 
@@ -829,58 +878,32 @@ class FMF:
         name = getattr(connectors[0], "name", None) if not isinstance(connectors[0], dict) else connectors[0].get("name")
         return name or "local_docs"
 
-    def _load_aws_credentials_early(self) -> None:
-        """Load AWS credentials from .env into os.environ early for boto3.
+    def _bootstrap_credentials(self) -> None:
+        """Bootstrap AWS credentials from .env for accessing AWS services.
         
-        This ensures S3 connector and other AWS services can access credentials
-        before chain execution. Mirrors the logic in _prepare_environment.
+        This implements the bootstrap phase of credential loading:
+        1. Load AWS credentials from .env file (bootstrap credentials)
+        2. Set them in os.environ for boto3
+        3. Auth provider can now access AWS Secrets Manager
+        4. Resolve application secrets (AZURE_OPENAI_API_KEY, etc.)
+        
+        Design Pattern:
+            .env file (bootstrap) → AWS Secrets Manager (application secrets)
         """
         try:
-            from ..auth import build_auth_provider
+            from ..auth import bootstrap_aws_credentials
             
             auth_cfg = getattr(self._cfg, "auth", None) if not isinstance(self._cfg, dict) else self._cfg.get("auth")
             if not auth_cfg:
+                self._logger.debug("No auth config, skipping credential bootstrap")
                 return
-                
-            try:
-                auth_provider = build_auth_provider(auth_cfg)
-            except Exception:
-                return
-                
-            if not auth_provider:
-                return
-                
-            # Load AWS credentials into os.environ
-            try:
-                _aws_keys = auth_provider.resolve(["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"])
-                ak = _aws_keys.get("AWS_ACCESS_KEY_ID")
-                sk = _aws_keys.get("AWS_SECRET_ACCESS_KEY")
-                if ak and sk:
-                    os.environ.setdefault("AWS_ACCESS_KEY_ID", ak)
-                    os.environ.setdefault("AWS_SECRET_ACCESS_KEY", sk)
-            except Exception:
-                pass
-                
-            try:
-                _tok = auth_provider.resolve(["AWS_SESSION_TOKEN"])
-                st = _tok.get("AWS_SESSION_TOKEN")
-                if st:
-                    os.environ.setdefault("AWS_SESSION_TOKEN", st)
-            except Exception:
-                pass
-                
-            # Load AWS region if configured
-            try:
-                _region = auth_provider.resolve(["AWS_REGION"])
-                region = _region.get("AWS_REGION")
-                if region:
-                    os.environ.setdefault("AWS_REGION", region)
-                    os.environ.setdefault("AWS_DEFAULT_REGION", region)
-            except Exception:
-                pass
-        except Exception:
-            # Silently fail - credentials may be available from other sources
-            pass
+            
+            # Bootstrap AWS credentials from .env
+            bootstrap_aws_credentials(auth_cfg)
+            
+        except Exception as e:
+            # Log but don't fail - credentials may be available from other sources (IAM roles, etc.)
+            self._logger.debug(f"Credential bootstrap completed with warnings: {e}")
 
     def _get_effective_config(self) -> "EffectiveConfig":
         """Get the effective configuration merging fluent overrides with base config."""
@@ -919,6 +942,12 @@ class FMF:
             if 'inference' not in fluent_overrides:
                 fluent_overrides['inference'] = {}
             fluent_overrides['inference']['system_prompt'] = self._system_prompt_override
+
+        if self._secrets_provider_override:
+            # Override the secrets provider
+            if 'auth' not in fluent_overrides:
+                fluent_overrides['auth'] = {}
+            fluent_overrides['auth']['provider'] = self._secrets_provider_override
 
         # Create effective config
         return EffectiveConfig.from_base_and_overrides(

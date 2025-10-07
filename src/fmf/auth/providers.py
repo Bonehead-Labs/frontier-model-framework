@@ -178,6 +178,19 @@ class AwsSecretsProvider:
                     if val is None:
                         # binary not supported here; user must store strings
                         raise AuthError(f"Secret {secret_id!r} has no string value")
+                    
+                    # Try to parse as JSON - AWS Secrets Manager often stores secrets as JSON
+                    try:
+                        import json
+                        parsed = json.loads(val)
+                        # If it's a dict and has the logical name as a key, use that value
+                        if isinstance(parsed, dict) and logical in parsed:
+                            val = parsed[logical]
+                        # Otherwise use the whole string (might be plain text or JSON without matching key)
+                    except (json.JSONDecodeError, ValueError):
+                        # Not JSON, use as-is
+                        pass
+                    
                 except Exception as e:  # pragma: no cover - error paths
                     self._log.debug("Failed to resolve AWS secret %s: %s", secret_id, e)
                     missing.append(logical)
