@@ -3,24 +3,15 @@ run_profile: default
 artefacts_dir: artefacts
 
 auth:
-  # Auth provider determines where application secrets are stored
-  # Options: env, aws_secrets, azure_key_vault
+  # Secrets provider: env | aws_secrets | azure_key_vault
   provider: env
-  
-  # Bootstrap credentials: Used for accessing secret stores
-  # When using aws_secrets provider, .env must contain AWS credentials:
-  #   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN (optional)
-  # Design: .env (bootstrap) → AWS Secrets Manager (application secrets)
   env:
-    file: ".env"  # Path to .env file for bootstrap credentials
-  
-  # AWS Secrets Manager configuration (when provider: aws_secrets)
-  # Requires AWS credentials in .env to access Secrets Manager
+    file: ".env"
+  # Used when provider=aws_secrets
   aws_secrets:
     region: ap-southeast-2
-    source: secretsmanager  # or ssm for Parameter Store
+    source: secretsmanager
     secret_mapping:
-      # Map logical names to secret IDs in AWS Secrets Manager
       AZURE_OPENAI_API_KEY: AZURE_OPENAI_API_KEY
 
 connectors:

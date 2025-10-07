@@ -72,6 +72,17 @@ def bootstrap_aws_credentials(auth_cfg: Any) -> None:
         _log.debug("No .env file configured, skipping bootstrap")
         return
     
+    # Check if AWS credentials are already available (idempotent behavior)
+    # Only log if we're actually loading new credentials
+    already_loaded = []
+    for key in ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_REGION"]:
+        if os.getenv(key):
+            already_loaded.append(key)
+    
+    if len(already_loaded) >= 2:  # At least access key and secret key are needed
+        _log.debug(f"AWS credentials already available: {', '.join(already_loaded)}")
+        return
+    
     # Load .env file using dotenv library
     try:
         from dotenv import load_dotenv
