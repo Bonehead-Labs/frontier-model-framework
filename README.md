@@ -16,34 +16,161 @@ FF:::::::FF              M::::::M               M::::::M   FF:::::::FF
 F::::::::FF              M::::::M               M::::::M   F::::::::FF           
 F::::::::FF              M::::::M               M::::::M   F::::::::FF           
 FFFFFFFFFFF              MMMMMMMM               MMMMMMMM   FFFFFFFFFFF           
-```                                                                          
-
+```
 FMF is a pluggable, provider-agnostic framework for building LLM-powered data workflows across Azure OpenAI, AWS Bedrock, and more. It provides unified configuration, connectors (local, S3, SharePoint), processing pipelines, inference adapters, and a fluent Python SDK for rapid development.
 
-## Quick Install
+## Features
+
+- **Fluent Python SDK** - Chainable API for CSV, text, image, and DataFrame analysis
+- **Multi-provider inference** - Azure OpenAI, AWS Bedrock with unified interface
+- **Data connectors** - Local files, S3, SharePoint with streaming reads
+- **YAML-first configuration** - Human-readable config with environment overrides
+- **Processing pipelines** - Text chunking, table parsing, OCR, metadata extraction
+- **Export sinks** - S3, DynamoDB, Excel, Redshift, Delta, Fabric
+- **Observability** - Structured logs, metrics, optional OpenTelemetry tracing
+
+## Getting Started
+
+Choose your path:
+- **[Use as a Package](#use-as-a-package)** → Install FMF in your project via Git
+- **[Develop Locally](#develop-locally)** → Clone and contribute to FMF
+
+---
+
+## Use as a Package
+
+Install FMF from Git and use it in your projects without cloning the full repository.
+
+### Install
+
+Using **uv** (recommended):
+```bash
+uv add "git+https://github.com/Bonehead-Labs/frontier-model-framework.git#egg=frontier-model-framework[aws,azure]"
+```
+
+Using **pip**:
+```bash
+pip install "git+https://github.com/Bonehead-Labs/frontier-model-framework.git#egg=frontier-model-framework[aws,azure]"
+```
+
+### Configure
+
+Create `fmf.yaml` and `.env` in your project root:
+
+**fmf.yaml**:
+```yaml
+project: my-project
+artefacts_dir: artefacts
+
+auth:
+  provider: env
+  env:
+    file: .env
+
+connectors:
+  - name: local_docs
+    type: local
+    root: ./data
+    include: ['**/*.csv', '**/*.txt', '**/*.md']
+
+inference:
+  provider: azure_openai  # or aws_bedrock
+  azure_openai:
+    endpoint: ${AZURE_OPENAI_ENDPOINT}
+    api_version: 2024-02-15-preview
+    deployment: gpt-4o-mini
+    temperature: 0.2
+```
+
+**.env** (add to `.gitignore`):
+```bash
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_API_KEY=your-api-key
+
+AWS_ACCESS_KEY_ID=your-key
+AWS_SECRET_ACCESS_KEY=your-secret
+AWS_REGION=us-east-1
+```
+
+**Resources**:
+- [Full Configuration Guide](docs/CONFIGURATION.md)
+- [Example Template](fmf.example.yaml)
+- [Working Examples](examples/)
+
+### Quick Usage
+
+**Python SDK**:
+```python
+from fmf.sdk import FMF
+
+fmf = (FMF.from_env("fmf.yaml")
+       .with_service("aws_bedrock")
+       .with_response("both"))
+
+result = fmf.csv_analyse(
+    input="data/sample.csv",
+    text_col="Comment",
+    id_col="ID",
+    prompt="Analyze sentiment",
+    return_records=True
+)
+
+print(f"Processed {result.records_processed} records")
+```
+
+---
+
+## Develop Locally
+
+Clone the repository to contribute or run examples.
+
+### Install
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/Bonehead-Labs/frontier-model-framework.git
 cd frontier-model-framework
 
-# Install with uv (recommended - handles venv creation automatically)
-uv sync
+# Install with uv (creates .venv automatically)
+uv sync --extra aws --extra azure
 
-# Or install with specific extras
-uv sync --extra aws              # AWS support (S3, Bedrock)
-uv sync --extra azure            # Azure support (Azure OpenAI)
-uv sync --extra aws --extra azure  # Both providers
-
-# For development
-uv sync --extra aws --extra azure --extra dev --extra test
+# Or install specific extras
+uv sync --extra aws              # AWS support only
+uv sync --extra azure            # Azure support only
+uv sync --extra dev --extra test # Development tools
 ```
 
 **Note**: `uv sync` automatically creates a virtual environment in `.venv/` and installs all dependencies from `pyproject.toml` and `uv.lock`.
 
-## SDK Quickstart
+### Configure
 
-### Basic CSV Analysis
+The repo includes `fmf.yaml` and `.env` templates. Copy and customize:
+
+```bash
+# Create your .env from template
+cp .env.example .env
+# Edit .env with your credentials
+
+# fmf.yaml is already configured for local development
+```
+
+### Run Examples
+
+```bash
+# Run any example script
+uv run examples/analyse_csv_bedrock.py
+
+# Run CLI commands
+uv run fmf --help
+```
+
+---
+
+## Usage Examples
+
+### Python SDK
+
+#### Basic CSV Analysis
 
 ```python
 from fmf.sdk import FMF
@@ -63,7 +190,7 @@ print(f"Processed {result.records_processed} records")
 print(f"Output: {result.primary_output_path}")
 ```
 
-### Using Fluent API with AWS Bedrock
+#### Using Fluent API with AWS Bedrock
 
 ```python
 from fmf.sdk import FMF
@@ -88,7 +215,7 @@ if result.data:
     print(f"Sample result: {result.data[0]}")
 ```
 
-### Reading from S3
+#### Reading from S3
 
 ```python
 from fmf.sdk import FMF
@@ -111,22 +238,6 @@ result = fmf.csv_analyse(
 
 print(f"Processed {result.records_processed} records from S3")
 print(f"Output: {result.primary_output_path}")
-```
-
-## CLI Quickstart
-
-```bash
-# CSV analysis with local files
-fmf csv data/sample.csv Comment ID "Analyze sentiment and extract key themes"
-
-# With service override
-fmf csv data/sample.csv Comment ID "Analyze sentiment" --service aws_bedrock
-
-# Text processing
-fmf text data/*.md "Extract key information"
-
-# Image analysis
-fmf images sample/images/*.jpg "Describe this image"
 ```
 
 ## Configuration
@@ -152,7 +263,7 @@ fmf = (FMF.from_env("fmf.yaml")
        .with_service("aws_bedrock"))  # Fluent override
 ```
 
-## Examples
+## Examples Directory
 
 All examples are in the `examples/` directory and can be run with:
 
@@ -212,7 +323,7 @@ result = fmf.csv_analyse(
 print(f"Processed {result.records_processed} records from S3")
 ```
 
-## Features
+## Architecture & Features
 
 - **YAML-first configuration** with env/CLI overrides and profiles
 - **Data connectors** (local, S3, SharePoint/Graph) with streaming reads
@@ -280,8 +391,3 @@ To maintain a customized version for your organization while syncing with upstre
 5. Develop custom changes on branches, commit, and push to your fork.
 
 This keeps your version independent while pulling in latest changes from the original.
-
-## Contributing
-
-- Please read `AGENTS.md` for architecture, extension points, and coding conventions
-- Issues and PRs are welcome; keep changes small and focused

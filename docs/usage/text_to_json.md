@@ -34,14 +34,14 @@ print(f"Output: {result.primary_output_path}")
 ## CLI Usage
 
 ```bash
-# Basic text processing
-fmf text --input data/documents.md --prompt "Extract key information"
+# Basic text processing (positional arguments)
+fmf text data/documents.md "Extract key information"
 
-# Process multiple files
-fmf text --input "data/*.md" --prompt "Extract metadata" --output-format jsonl
+# Process multiple files, save to JSONL, choose response format
+fmf text "data/*.md" "Extract metadata" --output artefacts/text.jsonl --response jsonl
 
 # With RAG enabled
-fmf text --input data/documents.md --prompt "Summarize" --rag --rag-pipeline documents
+fmf text data/documents.md "Summarize" --rag --rag-pipeline documents
 ```
 
 ## Expected Outputs
@@ -76,4 +76,4 @@ fmf text --input data/documents.md --prompt "Summarize" --rag --rag-pipeline doc
 
 ## Example Script
 
-See `examples/text_to_json.py` for a complete working example.
+See `examples/text_analysis.py` for a complete working example.

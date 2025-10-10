@@ -36,14 +36,17 @@ print(f"Output: {result.primary_output_path}")
 ## CLI Usage
 
 ```bash
-# Basic analysis
-fmf csv analyse --input data/comments.csv --text-col Comment --id-col ID --prompt "Analyze sentiment"
+# Basic analysis (positional arguments)
+fmf csv data/comments.csv Comment ID "Analyze sentiment"
 
-# With RAG enabled
-fmf csv analyse --input data/comments.csv --text-col Comment --id-col ID --prompt "Analyze" --rag
+# With RAG enabled (optional flags)
+fmf csv data/comments.csv Comment ID "Analyze" --rag --rag-pipeline documents
 
-# With custom service and output format
-fmf csv analyse --input data/comments.csv --text-col Comment --id-col ID --prompt "Analyze" --service azure_openai --response jsonl
+# Specify provider and response format
+fmf csv data/comments.csv Comment ID "Analyze" --service azure_openai --response both
+
+# Save outputs to specific paths
+fmf csv data/comments.csv Comment ID "Analyze" --output-csv artefacts/out.csv --output-jsonl artefacts/out.jsonl
 ```
 
 ## Expected Outputs

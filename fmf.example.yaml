@@ -1,0 +1,49 @@
+# fmf.example.yaml
+# Minimal FMF configuration template for your project
+# Copy this to your project root as `fmf.yaml` and customize
+
+project: my-project
+artefacts_dir: artefacts
+
+# Authentication and secrets
+auth:
+  provider: env  # env | azure_key_vault | aws_secrets
+  env:
+    file: .env  # Path to your .env file (relative to working directory)
+
+# Data source connectors
+connectors:
+  - name: local_docs
+    type: local
+    root: ./data
+    include: ['**/*.csv', '**/*.txt', '**/*.md', '**/*.{png,jpg,jpeg}']
+
+# LLM inference configuration
+inference:
+  provider: azure_openai  # azure_openai | aws_bedrock
+  
+  # Azure OpenAI settings
+  azure_openai:
+    endpoint: ${AZURE_OPENAI_ENDPOINT}  # From .env
+    api_version: 2024-02-15-preview
+    deployment: gpt-4o-mini
+    temperature: 0.2
+    max_tokens: 1024
+  
+  # AWS Bedrock settings (uncomment if using)
+  # aws_bedrock:
+  #   region: us-east-1
+  #   model_id: anthropic.claude-3-haiku-20240307-v1:0
+  #   temperature: 0.2
+  #   max_tokens: 1024
+
+# Document processing (optional)
+processing:
+  text:
+    chunking:
+      strategy: recursive
+      max_tokens: 1000
+      overlap: 150
+
+# For full configuration options, see:
+# https://github.com/Bonehead-Labs/frontier-model-framework/blob/main/docs/CONFIGURATION.md

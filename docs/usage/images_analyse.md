@@ -34,14 +34,14 @@ print(f"Output: {result.primary_output_path}")
 ## CLI Usage
 
 ```bash
-# Basic image analysis
-fmf images --input data/image.png --prompt "Describe the content"
+# Basic image analysis (positional arguments)
+fmf images data/image.png "Describe the content"
 
-# Process multiple images
-fmf images --input "data/*.png" --prompt "Extract visual elements" --output-format jsonl
+# Process multiple images, choose response format, save output
+fmf images "data/*.png" "Extract visual elements" --response jsonl --output artefacts/images.jsonl
 
 # With RAG enabled
-fmf images --input data/image.png --prompt "Analyze" --rag --rag-pipeline images
+fmf images data/image.png "Analyze" --rag --rag-pipeline images
 ```
 
 ## Expected Outputs
