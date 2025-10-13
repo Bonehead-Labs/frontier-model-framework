@@ -146,7 +146,7 @@ class FMF:
         self,
         *,
         input: str,
-        text_col: str,
+        text_col: str | List[str],
         id_col: str,
         prompt: str,
         save_csv: str | None = None,
@@ -204,8 +204,14 @@ class FMF:
             step["infer"] = {"mode": mode}
 
         pass_through_cols = [id_col]
-        if text_col not in pass_through_cols:
-            pass_through_cols.append(text_col)
+        # Ensure all text columns are included in pass-through when a list is provided
+        if isinstance(text_col, list):
+            for col in text_col:
+                if col not in pass_through_cols:
+                    pass_through_cols.append(col)
+        else:
+            if text_col not in pass_through_cols:
+                pass_through_cols.append(text_col)
 
         # Build outputs list
         outputs = [

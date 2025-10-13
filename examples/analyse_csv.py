@@ -20,7 +20,7 @@ def main() -> None:
     # Run CSV analysis
     result = fmf.csv_analyse(
         input="data/sample.csv",
-        text_col="Comment",
+        text_col=["Comment", "Spoof"],
         id_col="ID",
         prompt="Analyze sentiment and extract key themes from this comment",
         return_records=True,

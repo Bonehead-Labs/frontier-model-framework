@@ -96,11 +96,19 @@ def csv_analyse(
                 "top_k_images": 2,
             }
             logger.debug("RAG options configured", rag_options=rag_options)
-        
+
+        # Prepare parsed text_col (support comma-separated list)
+        parsed_text_col = text_col
+        if "," in text_col:
+            parts = [c.strip() for c in text_col.split(",") if c.strip()]
+            if parts:
+                parsed_text_col = parts
+
+        # Optional dry run
         if dry_run:
             logger.info("Dry run mode - showing configuration")
             typer.echo(f"Would analyze CSV: {input_file}")
-            typer.echo(f"  Text column: {text_col}")
+            typer.echo(f"  Text column: {parsed_text_col}")
             typer.echo(f"  ID column: {id_col}")
             typer.echo(f"  Prompt: {prompt}")
             if service:
@@ -112,21 +120,21 @@ def csv_analyse(
             if source:
                 typer.echo(f"  Source: {source}")
             return
-        
-        # Run CSV analysis
-        logger.info("Starting CSV analysis", 
-                   input_file=input_file, 
-                   text_col=text_col, 
-                   id_col=id_col,
-                   prompt_length=len(prompt))
-        
-        with logger.operation("csv_analyse", 
-                            input_file=input_file,
-                            text_col=text_col,
-                            id_col=id_col):
+
+        # Start analysis
+        logger.info("Starting CSV analysis",
+                    input_file=input_file,
+                    text_col=parsed_text_col,
+                    id_col=id_col,
+                    prompt_length=len(prompt))
+
+        with logger.operation("csv_analyse",
+                              input_file=input_file,
+                              text_col=parsed_text_col,
+                              id_col=id_col):
             records = fmf.csv_analyse(
                 input=input_file,
-                text_col=text_col,
+                text_col=parsed_text_col,
                 id_col=id_col,
                 prompt=prompt,
                 save_csv=output_csv,

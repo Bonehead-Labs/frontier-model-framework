@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased] - 2025-10-13
+
+### Added
+
+- Support for multiple text columns in `csv_analyse` method. The `text_col` parameter now accepts a list of column names, which are concatenated into a single text field for analysis. CLI supports comma-separated column names.
+
 ## [0.4.0] - 2025-10-08
 - **Credential bootstrap refactor**: Introduced centralized bootstrap utilities in `src/fmf/auth/bootstrap.py`.
  - `.env` is used for AWS bootstrap credentials (ACCESS_KEY/SECRET/TOKEN/REGION) so AWS Secrets Manager can be accessed for app secrets.
